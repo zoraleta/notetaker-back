@@ -1,0 +1,34 @@
+/**
+ * Public воркер `api-gateway` — единственная точка входа для фронта.
+ *
+ * - JWT-проверка и CORS живут только здесь (CLAUDE.md → правило 11).
+ * - До internal-воркеров доходит уже валидированный `userId`
+ *   (передаём заголовком `x-user-id` в проксируемом запросе).
+ * - Service Bindings: AUTH (Phase 3); NOTES, AI, PARSER, PROJECTS — добавляются в Phase 4–7.
+ *
+ * `JWT_SECRET` совпадает со значением в `notetaker-auth` (auth подписывает,
+ * gateway проверяет). Локально — `api-gateway/.dev.vars`, в проде — `wrangler secret put`.
+ */
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "notetaker-api-gateway",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-05-09",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"workers_dev": true,
+	"observability": {
+		"enabled": true
+	},
+	"upload_source_maps": true,
+	"services": [
+		{
+			"binding": "AUTH",
+			"service": "notetaker-auth"
+		}
+	],
+	"dev": {
+		"port": 8787
+	}
+}

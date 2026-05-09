@@ -20,12 +20,24 @@ const STATUS_BY_CODE: Record<ResultErrorCode, 400 | 401 | 403 | 404 | 502> = {
 	EXTERNAL: 502,
 }
 
+// Перехватываем дефолтный ответ @hono/zod-validator и возвращаем
+// единый формат { error, code: 'VALIDATION' } — как у доменных ошибок.
+// Сообщение берём из первого issue (там лежит наш русский message из схемы).
+const credentialsValidator = zValidator('json', credentialsSchema, (result, c) => {
+	if (!result.success) {
+		return c.json(
+			{ error: result.error.issues[0]?.message ?? 'Невалидные данные', code: 'VALIDATION' as const },
+			400,
+		)
+	}
+})
+
 export const authRoutes = new Hono<{ Bindings: Env }>()
-	.post('/register', zValidator('json', credentialsSchema), async (c) => {
+	.post('/register', credentialsValidator, async (c) => {
 		const result = await registerUser(c.env, c.req.valid('json'))
 		return toResponse(c, result, 201)
 	})
-	.post('/login', zValidator('json', credentialsSchema), async (c) => {
+	.post('/login', credentialsValidator, async (c) => {
 		const result = await loginUser(c.env, c.req.valid('json'))
 		return toResponse(c, result, 200)
 	})
