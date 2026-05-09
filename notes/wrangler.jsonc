@@ -1,0 +1,39 @@
+/**
+ * Internal-воркер `notes` (F2 backend: CRUD заметок).
+ *
+ * - Без публичного `routes` — все запросы только через `notetaker-api-gateway`
+ *   (Service Binding `NOTES`).
+ * - JWT не валидируется здесь (CLAUDE.md → правило 11): доверяем заголовку
+ *   `x-user-id`, который ставит gateway после успешной проверки токена.
+ * - AI/Vectorize-индексация заметок откладывается на Phase 5 — вызов
+ *   воркера `ai` появится в gateway (через `c.executionCtx.waitUntil(...)`).
+ *
+ * Полный список правил — `notetaker-back/CLAUDE.md`.
+ */
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "notetaker-notes",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-05-09",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	// Internal-воркер: явно отключаем публичный поддомен <name>.<account>.workers.dev,
+	// чтобы фронт не мог обратиться к нему в обход gateway (CLAUDE.md → правило 1).
+	"workers_dev": false,
+	"observability": {
+		"enabled": true
+	},
+	"upload_source_maps": true,
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "notetaker",
+			"database_id": "86ba93ac-dfd9-4820-88a6-d6b970828a0d",
+			"migrations_dir": "drizzle"
+		}
+	],
+	"dev": {
+		"port": 8790
+	}
+}

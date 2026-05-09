@@ -26,6 +26,10 @@
 		{
 			"binding": "AUTH",
 			"service": "notetaker-auth"
+		},
+		{
+			"binding": "NOTES",
+			"service": "notetaker-notes"
 		}
 	],
 	"dev": {

@@ -30,22 +30,27 @@
 - `POST /auth/register` → proxy → `notetaker-auth` `/register`.
 - `POST /auth/login` → proxy → `notetaker-auth` `/login`.
 
-Тело запроса валидируется в `auth`, gateway его не парсит и не дублирует Zod-схемы.
+**Защищённые роуты (`src/routes/notes.routes.ts`):**
+- `POST /notes`, `GET /notes`, `GET /notes/:id`, `PATCH /notes/:id`, `DELETE /notes/:id` → proxy → `notetaker-notes` (тот же путь). Префикс совпадает, поэтому `proxyToService` вызывается без `internalPath` и URL сохраняется как есть. `x-user-id` берётся из `c.get('user').id` (поставлен JWT-middleware).
+
+Тело запроса валидируется в целевых internal-воркерах, gateway его не парсит и не дублирует Zod-схемы.
 
 ## Зависимости
 - **Service Binding `AUTH`** (`Fetcher`) → воркер `notetaker-auth`.
+- **Service Binding `NOTES`** (`Fetcher`) → воркер `notetaker-notes`.
 - **`env.JWT_SECRET`** → секрет, должен совпадать со значением в `notetaker-auth` (auth подписывает, gateway проверяет). Локально — `api-gateway/.dev.vars`, в проде — `wrangler secret put JWT_SECRET`.
 - **Внешние пакеты:** `hono`, `@hono/zod-validator`, `zod`, `@tsndr/cloudflare-worker-jwt`.
 
 `DB`, `env.AI`, `env.VECTORIZE` — не привязаны и **не должны** быть привязаны к этому воркеру.
 
-В Phase 4–7 сюда добавятся Service Bindings: `NOTES`, `AI`, `PARSER`, `PROJECTS`.
+В Phase 5–7 сюда добавятся Service Bindings: `AI`, `PARSER`, `PROJECTS`.
 
 ## Routes (публичные)
 - `POST /auth/register` — JSON `{ email, password }`. Валидируется и обрабатывается в `notetaker-auth`. Ответ: `201 { token, user: { id, email } }` или `400 { error, code: 'VALIDATION' }`.
 - `POST /auth/login` — то же тело. Ответ: `200 { token, user }` или `401 { error, code: 'UNAUTHORIZED' }`.
+- `POST/GET/GET/:id/PATCH/:id/DELETE/:id` под `/notes` — F2 CRUD заметок. Защищены JWT-middleware. Контракт описан в `docs/modules/notes.md`.
 
-Все остальные публичные роуты появятся в Phase 4–7 и будут под `jwtMiddleware`.
+Все остальные публичные роуты появятся в Phase 5–7 (`/ai/*`, `/projects/*`, `/links/*`, `/settings/*`).
 
 ## Internal endpoints / RPC
 Не имеет — gateway сам ни с кем не говорит как сервер для других воркеров. Только клиент Service Bindings.

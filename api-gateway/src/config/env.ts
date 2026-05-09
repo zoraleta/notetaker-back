@@ -4,6 +4,7 @@
 export interface Env {
 	JWT_SECRET: string
 	AUTH: Fetcher
+	NOTES: Fetcher
 }
 
 export type Variables = {

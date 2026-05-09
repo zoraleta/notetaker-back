@@ -4,6 +4,7 @@ import type { AppBindings } from './config/env'
 import { corsMiddleware } from './middleware/cors.middleware'
 import { jwtMiddleware } from './middleware/jwt.middleware'
 import { authRoutes } from './routes/auth.routes'
+import { notesRoutes } from './routes/notes.routes'
 
 // Public воркер `notetaker-api-gateway`. Единственная точка входа для фронта:
 // CORS + JWT + проксирование во внутренние воркеры через Service Bindings.
@@ -18,13 +19,15 @@ app.use('*', corsMiddleware)
 app.route('/auth', authRoutes)
 
 // JWT-middleware вешается ровно на защищённые префиксы.
-// Phase 4–7: добавятся /notes/*, /ai/*, /projects/*, /links/*, /settings/*.
-// Сейчас защищённых роутов ещё нет, middleware просто готов к подключению.
+// Phase 5–7: добавятся /ai/*, /projects/*, /links/*, /settings/*.
 app.use('/notes/*', jwtMiddleware)
 app.use('/ai/*', jwtMiddleware)
 app.use('/projects/*', jwtMiddleware)
 app.use('/links/*', jwtMiddleware)
 app.use('/settings/*', jwtMiddleware)
+
+// Защищённые роуты — после JWT-middleware.
+app.route('/notes', notesRoutes)
 
 // Централизованный обработчик непредвиденных ошибок (CLAUDE.md → правило 5).
 // Ожидаемые ошибки приходят как Result<T> из internal-воркеров и проксируются

@@ -1,22 +1,25 @@
 // Хелпер для прозрачного проксирования запроса в internal-воркер
 // через Service Binding (CLAUDE.md → правило 8 «Worker→worker — только Service Bindings»).
 //
-// Зачем переделываем URL: gateway-роуты живут под префиксом (например, /auth/register),
-// а internal-воркеры слушают «свой» путь (/register). Переписываем pathname на
-// internalPath и прокидываем тело/заголовки исходного запроса как есть.
+// Когда нужен `internalPath`: префикс в gateway не совпадает с путём internal-воркера
+// (например, gateway-роут `/auth/register` → auth слушает `/register`). Если префиксы
+// совпадают (gateway `/notes/...` → notes тоже `/notes/...`) — `internalPath` не передаём,
+// proxyToService сохранит исходный pathname.
 //
 // userId ставим заголовком x-user-id из jwt-middleware: внутренние воркеры
 // доверяют ему и сами JWT не парсят (CLAUDE.md → правило 11).
 export interface ProxyOptions {
 	target: Fetcher
 	request: Request
-	internalPath: string
+	internalPath?: string
 	userId?: string
 }
 
 export function proxyToService({ target, request, internalPath, userId }: ProxyOptions): Promise<Response> {
 	const url = new URL(request.url)
-	url.pathname = internalPath
+	if (internalPath !== undefined) {
+		url.pathname = internalPath
+	}
 
 	const proxied = new Request(url, request)
 	if (userId) {
