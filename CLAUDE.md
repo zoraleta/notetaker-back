@@ -2,7 +2,7 @@
 
 Бэкенд для notetaker (тестовое задание Mediacube). Серверлесс на Cloudflare, AI-first, **микросервисная архитектура** на отдельных воркерах с Service Bindings.
 
-> **Эта папка — общая документация бэка** (правила, агенты-ревьюеры, dev-pipeline, `docs/modules/<module>.md`). Сами воркеры — отдельные top-level папки рядом (`api-gateway`, `auth`, …). Все воркеры подчиняются правилам из этого файла.
+> **Эта папка — корень бэк-репозитория**: общая документация (этот файл, агенты-ревьюеры, `docs/modules/<module>.md`) **и сами воркеры**, каждый в своей подпапке (`auth/`, `api-gateway/`, `notes/`, `ai/`, `parser/`, `projects/`). Все воркеры подчиняются правилам из этого файла.
 
 > **Соглашение об именах:** папки воркеров — без префикса (`auth`, `api-gateway`, `notes`, `ai`, `parser`, `projects`). Поле `name` в `wrangler.toml` (публичное имя воркера в Cloudflare-аккаунте) — с префиксом `notetaker-` (`notetaker-auth`, `notetaker-api-gateway`, …). Тот же префикс используется в `service = "..."` в Service Bindings.
 
@@ -57,15 +57,20 @@
 ### Структура репозитория
 
 ```
-mediacube-test-task/
-├── notetaker-back/           ← общая документация (этот файл, .claude/agents, docs/)
-├── api-gateway/              ← единственный publicly-exposed воркер
-├── auth/                     ← internal: регистрация, логин, JWT
-├── notes/                    ← internal: CRUD заметок
-├── ai/                       ← internal: саммарайз, классификация, разгон тем (Workers AI)
-├── parser/                   ← internal: фетч URL + extract контента
-├── projects/                 ← internal: упаковка идей в проекты
-└── notetaker-front/          ← Cloudflare Pages
+mediacube-test-task/                ← обычная папка (не git-репо)
+├── general-docs/                   ← бизнес-требования, tech-plan, user-workflows
+├── notetaker-front/                ← отдельный git-репо: Cloudflare Pages
+└── notetaker-back/                 ← отдельный git-репо: бэк
+    ├── CLAUDE.md                   ← этот файл
+    ├── .claude/agents/             ← агенты-ревьюеры
+    ├── docs/                       ← dev-pipeline, modules/<module>.md
+    ├── secrets.local.md            ← локальные секреты (в .gitignore)
+    ├── api-gateway/                ← единственный publicly-exposed воркер
+    ├── auth/                       ← internal: регистрация, логин, JWT
+    ├── notes/                      ← internal: CRUD заметок
+    ├── ai/                         ← internal: саммарайз, классификация, разгон тем (Workers AI)
+    ├── parser/                     ← internal: фетч URL + extract контента
+    └── projects/                   ← internal: упаковка идей в проекты
 ```
 
 > Состав воркеров финализируется в Phase 1 декомпозиции. Список выше — стартовая точка, может корректироваться.
