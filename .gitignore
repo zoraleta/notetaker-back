@@ -1,2 +1,56 @@
-/.claude
-/CLAUDE.md
+# Claude Code (агент-ассистент, не часть проекта)
+/.claude/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+
+# TypeScript
+*.tsbuildinfo
+dist/
+build/
+out/
+
+# Cloudflare Workers / Wrangler
+.wrangler/
+.mf/
+.dev.vars
+.dev.vars.*
+wrangler.toml.bak
+
+# Drizzle (локальные артефакты, миграции коммитим)
+drizzle/.snapshot/
+
+# Env / секреты
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json.example
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Тесты / coverage
+coverage/
+.nyc_output/
+
+# Логи
+*.log
+logs/
+
+# Временные файлы
+*.tmp
+.cache/
