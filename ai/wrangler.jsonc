@@ -1,0 +1,61 @@
+/**
+ * Internal-воркер `ai` (Phase 5: F1, F3, F4, F5, F7, F8).
+ *
+ * - Без публичного `routes` — все запросы только через `notetaker-api-gateway`
+ *   (Service Binding `AI`) и `notetaker-notes` (Service Binding `AI` для
+ *   фоновой индексации заметок в Vectorize, см. Phase 5B).
+ * - JWT не валидируется здесь (CLAUDE.md → правило 11): доверяем заголовку
+ *   `x-user-id` от gateway/notes.
+ * - **Единственный воркер с `[ai]` (Workers AI binding) и `[[vectorize]]`**
+ *   (CLAUDE.md → правила 4, 5, 9, 10). Все остальные воркеры зовут ai
+ *   через Service Binding.
+ * - Vectorize-индекс `notetaker-vectors` создан в Phase 1 (1024 dim, cosine).
+ *
+ * Полный список правил — `notetaker-back/CLAUDE.md`.
+ */
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "notetaker-ai",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-05-09",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	// Internal-воркер: явно отключаем публичный поддомен <name>.<account>.workers.dev,
+	// чтобы фронт не мог обратиться к нему в обход gateway (CLAUDE.md → правило 1).
+	"workers_dev": false,
+	"observability": {
+		"enabled": true
+	},
+	"upload_source_maps": true,
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "notetaker",
+			"database_id": "86ba93ac-dfd9-4820-88a6-d6b970828a0d",
+			"migrations_dir": "drizzle"
+		}
+	],
+	// Workers AI всегда работает remote (даже в local dev) — биндинг проксирует
+	// в Cloudflare. `remote: true` глушит warning wrangler-а и фиксирует
+	// поведение явно (CLAUDE.md → «Команды»: «AI работает только через Cloudflare»).
+	"ai": {
+		"binding": "AI",
+		"remote": true
+	},
+	// Vectorize в локальном wrangler dev по умолчанию `not supported`.
+	// `remote: true` направляет local dev на удалённый индекс (CLAUDE.md →
+	// «Команды»: «Vectorize в локальном wrangler dev ходит на удалённый индекс,
+	// нужен wrangler login»). Namespace = userId — данные пользователей
+	// не пересекаются (см. CLAUDE.md «Векторный индекс»).
+	"vectorize": [
+		{
+			"binding": "VECTORIZE",
+			"index_name": "notetaker-vectors",
+			"remote": true
+		}
+	],
+	"dev": {
+		"port": 8791
+	}
+}
