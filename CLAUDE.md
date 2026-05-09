@@ -2,7 +2,9 @@
 
 Бэкенд для notetaker (тестовое задание Mediacube). Серверлесс на Cloudflare, AI-first, **микросервисная архитектура** на отдельных воркерах с Service Bindings.
 
-> **Эта папка — общая документация бэка** (правила, агенты-ревьюеры, dev-pipeline, `docs/modules/<module>.md`). Сами воркеры — отдельные top-level папки рядом (`notetaker-api-gateway`, `notetaker-auth`, …). Все воркеры подчиняются правилам из этого файла.
+> **Эта папка — общая документация бэка** (правила, агенты-ревьюеры, dev-pipeline, `docs/modules/<module>.md`). Сами воркеры — отдельные top-level папки рядом (`api-gateway`, `auth`, …). Все воркеры подчиняются правилам из этого файла.
+
+> **Соглашение об именах:** папки воркеров — без префикса (`auth`, `api-gateway`, `notes`, `ai`, `parser`, `projects`). Поле `name` в `wrangler.toml` (публичное имя воркера в Cloudflare-аккаунте) — с префиксом `notetaker-` (`notetaker-auth`, `notetaker-api-gateway`, …). Тот же префикс используется в `service = "..."` в Service Bindings.
 
 ---
 
@@ -42,9 +44,9 @@
 - **DB:** Cloudflare D1 (SQLite) — **одна общая БД**, биндится в воркеры, которым нужен доступ
 - **ORM:** Drizzle (миграции через `drizzle-kit` + `wrangler d1 migrations`)
 - **Validation:** Zod + `@hono/zod-validator`
-- **Auth:** JWT (выдаёт `notetaker-auth`, проверяет middleware в `notetaker-api-gateway`) + Oslo/Scrypt для паролей
-- **AI:** **Cloudflare Workers AI** через нативный binding `env.AI.run(model, input)` — **только в `notetaker-ai`**. Никакого OpenAI SDK / прямых HTTP-вызовов внешних LLM.
-- **Vector DB:** **Cloudflare Vectorize** через binding `env.VECTORIZE` — **только в `notetaker-ai`**. Embeddings через Workers AI (`@cf/baai/bge-m3`, 1024 dim, multilingual). Используется для семантического поиска, «похожих заметок», RAG и auto-классификации.
+- **Auth:** JWT (выдаёт `auth`, проверяет middleware в `api-gateway`) + Oslo/Scrypt для паролей
+- **AI:** **Cloudflare Workers AI** через нативный binding `env.AI.run(model, input)` — **только в `ai`**. Никакого OpenAI SDK / прямых HTTP-вызовов внешних LLM.
+- **Vector DB:** **Cloudflare Vectorize** через binding `env.VECTORIZE` — **только в `ai`**. Embeddings через Workers AI (`@cf/baai/bge-m3`, 1024 dim, multilingual). Используется для семантического поиска, «похожих заметок», RAG и auto-классификации.
 - **Inter-worker:** **Service Bindings** (`env.AI.fetch(...)` или RPC). Никаких HTTP-вызовов между своими воркерами.
 - **Деплой:** `wrangler deploy` отдельно для каждого воркера
 
@@ -57,12 +59,12 @@
 ```
 mediacube-test-task/
 ├── notetaker-back/           ← общая документация (этот файл, .claude/agents, docs/)
-├── notetaker-api-gateway/    ← единственный publicly-exposed воркер
-├── notetaker-auth/           ← internal: регистрация, логин, JWT
-├── notetaker-notes/          ← internal: CRUD заметок
-├── notetaker-ai/             ← internal: саммарайз, классификация, разгон тем (Workers AI)
-├── notetaker-parser/         ← internal: фетч URL + extract контента
-├── notetaker-projects/       ← internal: упаковка идей в проекты
+├── api-gateway/              ← единственный publicly-exposed воркер
+├── auth/                     ← internal: регистрация, логин, JWT
+├── notes/                    ← internal: CRUD заметок
+├── ai/                       ← internal: саммарайз, классификация, разгон тем (Workers AI)
+├── parser/                   ← internal: фетч URL + extract контента
+├── projects/                 ← internal: упаковка идей в проекты
 └── notetaker-front/          ← Cloudflare Pages
 ```
 
@@ -70,11 +72,11 @@ mediacube-test-task/
 
 ### Принципы
 
-1. **`notetaker-api-gateway` — единственный воркер с публичным URL.** Только он принимает запросы фронта и проксирует их во внутренние воркеры через Service Bindings.
+1. **`api-gateway` — единственный воркер с публичным URL.** Только он принимает запросы фронта и проксирует их во внутренние воркеры через Service Bindings.
 2. **Внутренние воркеры** не имеют публичного URL и не настраивают CORS. Их «фронтом» является `api-gateway`.
 3. **JWT-middleware и CORS живут в `api-gateway`.** Внутренние воркеры доверяют `userId`, переданному gateway-ем (через RPC-аргументы или заголовок `x-user-id` — выбираем единый стиль на старте).
-4. **Workers AI binding (`env.AI: Ai`) — только в `notetaker-ai`.** Остальные воркеры зовут AI исключительно через Service Binding к ai-воркеру.
-5. **Vectorize binding (`env.VECTORIZE: VectorizeIndex`) — тоже только в `notetaker-ai`.** Все vector-операции (upsert/query/deleteByIds) централизованы в ai-воркере. Остальные воркеры (например, `notetaker-notes` после создания/обновления/удаления заметки) зовут ai-воркер через Service Binding.
+4. **Workers AI binding (`env.AI: Ai`) — только в `ai`.** Остальные воркеры зовут AI исключительно через Service Binding к ai-воркеру.
+5. **Vectorize binding (`env.VECTORIZE: VectorizeIndex`) — тоже только в `ai`.** Все vector-операции (upsert/query/deleteByIds) централизованы в ai-воркере. Остальные воркеры (например, `notes` после создания/обновления/удаления заметки) зовут ai-воркер через Service Binding.
 6. **D1 одна** (`notetaker`), биндится в воркеры, которым нужны соответствующие таблицы.
 7. **Состав воркеров фиксирован.** Не плодить новые воркеры под мелкие задачи — это over-engineering. Если задача не тянет на отдельный домен, она встраивается в существующий воркер.
 8. **Общие Zod-схемы и типы** — копируются между воркерами (trade-off за простоту запуска при отдельных папках). Не выделять в общий npm package, пока их не будет 5+ повторений с реальными расхождениями.
@@ -118,8 +120,8 @@ src/
 6. **Промпты не хардкодятся.** См. раздел «Настройки AI: гибрид config + D1».
 7. **Фоновая работа** через `c.executionCtx.waitUntil()` — клиент получает ответ сразу.
 8. **Worker→worker — только Service Bindings**, никогда HTTP. Между воркерами нет публичных URL.
-9. **AI-вызовы — только из `notetaker-ai`.** Любой другой воркер, которому нужна AI, зовёт ai-воркер через Service Binding.
-10. **Vectorize-операции — только из `notetaker-ai`.** Любой другой воркер, которому нужно проиндексировать, найти, удалить вектор, зовёт ai-воркер через Service Binding (`env.AI.fetch('https://internal/vectors/...')`).
+9. **AI-вызовы — только из `ai`.** Любой другой воркер, которому нужна AI, зовёт ai-воркер через Service Binding.
+10. **Vectorize-операции — только из `ai`.** Любой другой воркер, которому нужно проиндексировать, найти, удалить вектор, зовёт ai-воркер через Service Binding (`env.AI.fetch('https://internal/vectors/...')`).
 11. **JWT проверяется только в `api-gateway`.** Внутренние воркеры получают уже валидированный `userId` от gateway.
 12. **Секреты** — только в `wrangler.toml`/dashboard, никогда в коде.
 13. **Edge-совместимость.** Никаких Node-only зависимостей (`fs`, `crypto` в Node-стиле, тяжёлые ORM).
@@ -130,16 +132,16 @@ src/
 
 Различаются между gateway и internal-воркерами.
 
-### `notetaker-api-gateway`
+### `api-gateway`
 
 ```ts
 // Единственный воркер с публичным URL. Здесь Service Bindings, JWT и CORS.
 export interface Env {
   DB?: D1Database              // если gateway сам хранит сессии/мета — иначе можно опустить
   JWT_SECRET: string
-  AUTH: Fetcher                // Service Binding на notetaker-auth
+  AUTH: Fetcher                // Service Binding на воркер auth
   NOTES: Fetcher
-  AI: Fetcher                  // Service Binding на notetaker-ai (НЕ Workers AI binding!)
+  AI: Fetcher                  // Service Binding на воркер ai (НЕ Workers AI binding!)
   PARSER: Fetcher
   PROJECTS: Fetcher
 }
@@ -173,7 +175,7 @@ service = "notetaker-ai"
 # и т.д. для PARSER, PROJECTS
 ```
 
-### `notetaker-ai`
+### `ai`
 
 ```ts
 // Единственный воркер с биндингами Workers AI и Vectorize.
@@ -199,7 +201,7 @@ binding = "VECTORIZE"
 index_name = "notetaker-vectors"   # создан через wrangler vectorize create
 ```
 
-### `notetaker-auth` / `notetaker-notes` / `notetaker-projects` / `notetaker-parser`
+### `auth` / `notes` / `projects` / `parser`
 
 ```ts
 // Internal-воркеры без публичного URL. JWT уже проверен в gateway.
@@ -215,7 +217,7 @@ export interface Env {
 ### Вызов AI из ai-воркера
 
 ```ts
-// notetaker-ai/src/services/ai.service.ts
+// ai/src/services/ai.service.ts
 import { getActiveModel, getPrompt } from '@/config/ai'
 
 export async function summarize(env: Env, text: string) {
@@ -234,7 +236,7 @@ export async function summarize(env: Env, text: string) {
 ### Вызов AI-воркера из gateway
 
 ```ts
-// notetaker-api-gateway/src/services/ai-client.ts
+// api-gateway/src/services/ai-client.ts
 export async function summarize(env: Env, text: string): Promise<string> {
   const res = await env.AI.fetch('https://internal/summarize', {
     method: 'POST',
@@ -251,12 +253,12 @@ export async function summarize(env: Env, text: string): Promise<string> {
 
 **Цель:** дефолты гарантированно работают «из коробки», а с фронта (`/settings`) можно переопределять промпты и активную модель без редеплоя.
 
-- **Дефолты — в коде** `notetaker-ai/src/config/prompts.ts` и `notetaker-ai/src/config/ai-models.ts`. Это типизированный whitelist.
+- **Дефолты — в коде** `ai/src/config/prompts.ts` и `ai/src/config/ai-models.ts`. Это типизированный whitelist.
 - **Переопределения — в D1** (таблицы `prompts(key, value, updatedAt)` и `settings(key, value)`). При чтении: если в D1 запись есть — берём её, иначе fallback на `DEFAULT_*`.
 - **Активная модель** — это запись в `settings` с `key='active_model'`, значение — id **из whitelist** `ALLOWED_MODELS`. Произвольную строку не принимаем.
 
 ```ts
-// notetaker-ai/src/config/ai-models.ts
+// ai/src/config/ai-models.ts
 export const ALLOWED_MODELS = [
   '@cf/meta/llama-3.1-8b-instruct',
   '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
@@ -272,7 +274,7 @@ export const EMBEDDING_DIMENSIONS = 1024
 ```
 
 ```ts
-// notetaker-ai/src/services/settings.service.ts
+// ai/src/services/settings.service.ts
 export async function getActiveModel(env: Env): Promise<AllowedModel> {
   const saved = await getSetting(env, 'active_model')
   if (saved && (ALLOWED_MODELS as readonly string[]).includes(saved)) {
@@ -282,7 +284,7 @@ export async function getActiveModel(env: Env): Promise<AllowedModel> {
 }
 ```
 
-CRUD настроек живёт в `notetaker-ai`. Gateway проксирует `/settings/*` через Service Binding.
+CRUD настроек живёт в `ai`. Gateway проксирует `/settings/*` через Service Binding.
 
 ---
 
@@ -319,14 +321,14 @@ namespace: <userId>            // изоляция данных пользова
 
 | Сценарий | Операция | Где живёт код |
 |----------|----------|---------------|
-| Семантический поиск (Cmd+K) | `embed(query) → VECTORIZE.query(namespace=userId, topK=N)` | `notetaker-ai/services/search.service.ts` |
-| «Похожие заметки» | `VECTORIZE.query(by id=note:<noteId>)` или `query(values=<savedVector>)` | `notetaker-ai/services/search.service.ts` |
-| RAG для AI-разгона | `embed(currentText) → VECTORIZE.query(topK=5)` → подмешать в системный промпт | `notetaker-ai/services/discuss.service.ts` |
-| Auto-классификация | `query` против центроидов проектов/тегов (тоже хранятся как векторы) | `notetaker-ai/services/classify.service.ts` |
+| Семантический поиск (Cmd+K) | `embed(query) → VECTORIZE.query(namespace=userId, topK=N)` | `ai/services/search.service.ts` |
+| «Похожие заметки» | `VECTORIZE.query(by id=note:<noteId>)` или `query(values=<savedVector>)` | `ai/services/search.service.ts` |
+| RAG для AI-разгона | `embed(currentText) → VECTORIZE.query(topK=5)` → подмешать в системный промпт | `ai/services/discuss.service.ts` |
+| Auto-классификация | `query` против центроидов проектов/тегов (тоже хранятся как векторы) | `ai/services/classify.service.ts` |
 
 ### Жизненный цикл вектора заметки
 
-| Событие в `notetaker-notes` | Действие в `notetaker-ai` (через SVC binding) |
+| Событие в `notes` | Действие в `ai` (через SVC binding) |
 |-----------------------------|-----------------------------------------------|
 | Создание / обновление текста | `POST /internal/vectors/upsert` → embed + `VECTORIZE.upsert([{ id: 'note:'+id, values, metadata }])` |
 | Удаление заметки | `POST /internal/vectors/delete` → `VECTORIZE.deleteByIds(['note:'+id])` |
@@ -336,7 +338,7 @@ namespace: <userId>            // изоляция данных пользова
 
 ### Правила
 
-1. **`env.VECTORIZE` существует только в `notetaker-ai`.** Любой другой воркер использует Service Binding.
+1. **`env.VECTORIZE` существует только в `ai`.** Любой другой воркер использует Service Binding.
 2. **Namespace = `userId`.** Никогда не делать незапрещаемых cross-user query.
 3. **`metadata.userId` — дублирующий guard.** При query всегда добавляем `filter: { userId }` поверх namespace, на случай ошибки в namespace.
 4. **`id` = детерминированный** (`note:<uuid>`). Не использовать счётчик/random — иначе при upsert получим дубли.
@@ -358,7 +360,7 @@ export type Result<T> =
 
 ## Команды
 
-Команды выполняются **внутри папки конкретного воркера** (например `cd notetaker-auth && npm run dev`).
+Команды выполняются **внутри папки конкретного воркера** (например `cd auth && npm run dev`).
 
 ```bash
 npm run dev          # wrangler dev — запуск воркера локально
@@ -369,12 +371,12 @@ npm run db:apply     # wrangler d1 migrations apply notetaker --local
 npm run deploy       # wrangler deploy
 ```
 
-Создание Vectorize-индекса (выполняется один раз в облаке, до первого деплоя `notetaker-ai`):
+Создание Vectorize-индекса (выполняется один раз в облаке, до первого деплоя `ai`):
 
 ```bash
 # из любой папки, где есть wrangler
 wrangler vectorize create notetaker-vectors --dimensions=1024 --metric=cosine
-# затем: index_name="notetaker-vectors" уже прописан в notetaker-ai/wrangler.toml
+# затем: index_name="notetaker-vectors" уже прописан в ai/wrangler.toml
 ```
 
 Локальная разработка: `wrangler dev` в gateway автоматически поднимает Service Bindings к остальным воркерам, если они тоже запущены через `wrangler dev` параллельно (или объявлены как `dev = { remote = true }`). **Vectorize в локальном `wrangler dev` ходит на удалённый индекс** (нужен `wrangler login`) — используем тестовый namespace вроде `dev:<userId>`, чтобы не засорять прод-данные.
@@ -403,8 +405,8 @@ wrangler vectorize create notetaker-vectors --dimensions=1024 --metric=cosine
 - `Context`/`Request` в сигнатуре сервиса
 - Прямой `c.env.DB.prepare(...)` в сервисе
 - HTTP-вызов между своими воркерами вместо Service Binding
-- Workers AI binding в воркере, который не `notetaker-ai`
-- Vectorize binding в воркере, который не `notetaker-ai`
+- Workers AI binding в воркере, который не `ai`
+- Vectorize binding в воркере, который не `ai`
 - JWT-проверка во внутреннем воркере (должна быть только в gateway)
 - Создание нового воркера под одну функцию вместо встраивания в существующий
 - Хардкод системных промптов
@@ -425,7 +427,8 @@ wrangler vectorize create notetaker-vectors --dimensions=1024 --metric=cosine
 | Константа | UPPER_SNAKE_CASE | `MAX_NOTE_LENGTH`, `DEFAULT_MODEL` |
 | Boolean | `is*` / `has*` / `can*` | `isAuthenticated`, `hasAccess` |
 | Функция-действие | глагол + существительное | `summarizeArticle`, `insertNote` |
-| Воркер (папка/`name` в `wrangler.toml`) | kebab-case с префиксом `notetaker-` | `notetaker-auth`, `notetaker-api-gateway` |
+| Папка воркера | kebab-case без префикса | `auth`, `api-gateway` |
+| Имя воркера в Cloudflare (`name` в `wrangler.toml`) | kebab-case с префиксом `notetaker-` | `notetaker-auth`, `notetaker-api-gateway` |
 | Service Binding (ключ в `Env`) | UPPER_SNAKE_CASE | `AUTH`, `AI`, `PARSER` |
 
 Без сокращений, кроме общепринятых: `id`, `url`, `db`, `jwt`, `ai`.

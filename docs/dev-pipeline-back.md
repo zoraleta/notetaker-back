@@ -99,13 +99,13 @@
    - `notetaker-back/CLAUDE.md` — стек, архитектура микросервисов, слои внутри воркера, ключевые паттерны
    - Целевые воркеры (`notetaker-<name>/src/db/schema.ts`, `notetaker-<name>/src/routes/*`, `notetaker-<name>/src/services/*`) — текущая схема, существующие домены как образец
    - `wrangler.toml` каждого затронутого воркера — биндинги, Service Bindings, переменные
-   - `notetaker-api-gateway/src/routes/*` — как gateway маршрутизирует запросы
+   - `api-gateway/src/routes/*` — как gateway маршрутизирует запросы
    - `docs/modules/<module>.md` — если домен уже существует
-2. Не предлагать решений, противоречащих существующей архитектуре. Особенно: не дублировать JWT-проверку в internal-воркерах, не вводить `env.AI: Ai` нигде кроме `notetaker-ai`, не звать чужие воркеры по HTTP.
+2. Не предлагать решений, противоречащих существующей архитектуре. Особенно: не дублировать JWT-проверку в internal-воркерах, не вводить `env.AI: Ai` нигде кроме `ai`, не звать чужие воркеры по HTTP.
 3. Проверить, нужна ли миграция D1 (если новые таблицы/колонки — да, через `drizzle-kit generate` в воркере, владеющем таблицами).
 4. Проверить, нужен ли новый Service Binding (gateway → internal). Если да — обновить `wrangler.toml` обоих воркеров и тип `Env` в gateway.
 5. Проверить, нужны ли изменения в Vectorize:
-   - Новая сущность, которую надо искать по смыслу → `upsert/delete` в `notetaker-ai` после CRUD в исходном воркере (через SVC binding и `c.executionCtx.waitUntil(...)`).
+   - Новая сущность, которую надо искать по смыслу → `upsert/delete` в `ai` после CRUD в исходном воркере (через SVC binding и `c.executionCtx.waitUntil(...)`).
    - Изменение embedding-модели или dimensions — это **новый индекс**, не миграция: `wrangler vectorize create <new-name> ...`, новый `index_name` в `wrangler.toml`, реиндекс. До появления реальной потребности — не трогаем.
    - В query всегда `namespace = userId` + `filter: { userId }` — никаких cross-user поисков.
 
@@ -217,11 +217,11 @@ api-guardian:
 - DB-доступ только через `db/`: ✅
 - Result<T> вместо raw throw для ожидаемых ошибок: ✅
 - Worker→worker через Service Bindings (не fetch): ✅
-- env.AI: Ai только в notetaker-ai: ✅
-- env.VECTORIZE только в notetaker-ai: ✅
+- env.AI: Ai только в воркере ai: ✅
+- env.VECTORIZE только в воркере ai: ✅
 - Vectorize query: namespace=userId + metadata-filter userId: ✅
 - Векторы не дублируются в D1: ✅
-- JWT middleware только в notetaker-api-gateway: ✅
+- JWT middleware только в api-gateway: ✅
 - wrangler.toml согласован с типом Env: ✅
 
 clean-code-guardian:
@@ -294,15 +294,15 @@ feat(scope): краткое описание
 - Проверка миграций на чистой локальной D1
 - `wrangler deploy --dry-run` в каждом затронутом воркере — нет ошибок сборки.
 - **Биндинги в `wrangler.toml` совпадают с типом `Env`** в каждом воркере:
-  - `notetaker-api-gateway`: `JWT_SECRET` + Service Bindings (`AUTH`, `NOTES`, `AI`, `PARSER`, `PROJECTS`).
-  - `notetaker-ai`: `DB` (D1), `AI` (Workers AI), `VECTORIZE` (`index_name = "notetaker-vectors"`). Никаких `JWT_SECRET`.
+  - `api-gateway`: `JWT_SECRET` + Service Bindings (`AUTH`, `NOTES`, `AI`, `PARSER`, `PROJECTS`).
+  - `ai`: `DB` (D1), `AI` (Workers AI), `VECTORIZE` (`index_name = "notetaker-vectors"`). Никаких `JWT_SECRET`.
   - Internal-воркеры: только нужные таблицы D1, без публичного `[[routes]]`, без `[ai]`, без `[[vectorize]]`.
 - **Service Bindings двусторонне согласованы** — `service` в gateway-`wrangler.toml` указывает на ровно тот `name`, что прописан в `wrangler.toml` целевого воркера.
-- **AI-флоу прогнан локально через `wrangler dev`** в `notetaker-ai` — Workers AI работает в dev через прокси к Cloudflare, нужен `wrangler login`.
-- **Vectorize-индекс существует** (`wrangler vectorize list` показывает `notetaker-vectors` с `dimensions=1024, metric=cosine`) и `index_name` в `notetaker-ai/wrangler.toml` совпадает.
+- **AI-флоу прогнан локально через `wrangler dev`** в `ai` — Workers AI работает в dev через прокси к Cloudflare, нужен `wrangler login`.
+- **Vectorize-индекс существует** (`wrangler vectorize list` показывает `notetaker-vectors` с `dimensions=1024, metric=cosine`) и `index_name` в `ai/wrangler.toml` совпадает.
 - **Vector-флоу прогнан:** заметка создаётся → через `c.executionCtx.waitUntil(...)` появляется в Vectorize (`wrangler vectorize get-by-ids notetaker-vectors --ids note:<id>`); удаление заметки → запись пропадает; query возвращает только записи из правильного namespace.
 - **Гибрид настроек проверен:** дефолтные промпт/модель отрабатывают без записи в D1; запись в D1 переопределяет дефолт; невалидная модель в D1 → fallback на `DEFAULT_MODEL`. Embedding-модель остаётся константой.
-- Все секреты заведены через `wrangler secret put <KEY>` в нужных воркерах (не в `wrangler.toml`). `JWT_SECRET` — только в `notetaker-api-gateway` и `notetaker-auth` (последний для подписи).
+- Все секреты заведены через `wrangler secret put <KEY>` в нужных воркерах (не в `wrangler.toml`). `JWT_SECRET` — только в `api-gateway` и `auth` (последний для подписи).
 
 ### 🤖 Финальная проверка
 
@@ -333,8 +333,8 @@ feat(scope): краткое описание
 - [Кратко о фиче]
 
 ## Workers Touched
-- notetaker-<name>: что изменилось
-- notetaker-api-gateway: новые роуты / Service Bindings (если есть)
+- <name>: что изменилось
+- api-gateway: новые роуты / Service Bindings (если есть)
 
 ## Changes
 - Новый домен X
@@ -347,7 +347,7 @@ feat(scope): краткое описание
 - [ ] Миграции применяются на чистой БД
 - [ ] typecheck/lint пройдены в каждом затронутом воркере
 - [ ] wrangler.toml каждого воркера согласован с Env
-- [ ] AI-флоу прогнан (если затронут notetaker-ai)
+- [ ] AI-флоу прогнан (если затронут ai)
 - [ ] 🤖 Все агенты: ✅
 ```
 
@@ -396,12 +396,12 @@ feat(scope): краткое описание
 2. **`Context` / `Request` в сигнатуре сервиса** — сервис должен быть HTTP-agnostic
 3. **Прямой `c.env.DB.prepare(...)`** в сервисе — только через `db/`
 4. **HTTP-вызов между своими воркерами** — только Service Bindings
-5. **`env.AI: Ai` в воркере, не являющемся `notetaker-ai`** — все AI-вызовы маршрутизируются через ai-воркер
-6. **`env.VECTORIZE` (или `[[vectorize]]` в `wrangler.toml`) в воркере, не являющемся `notetaker-ai`** — все vector-операции через ai-воркер
+5. **`env.AI: Ai` в воркере, не являющемся `ai`** — все AI-вызовы маршрутизируются через ai-воркер
+6. **`env.VECTORIZE` (или `[[vectorize]]` в `wrangler.toml`) в воркере, не являющемся `ai`** — все vector-операции через ai-воркер
 7. **Vectorize query без `namespace=userId`** — риск утечки данных между пользователями
 8. **Дублирование векторов в D1** — Vectorize и есть хранилище
 9. **`BaseVectorRepository` / generic-обёртка над Vectorize** — нативный API из 4 методов короткий
-10. **JWT-проверка во внутреннем воркере** — только в `notetaker-api-gateway`
+10. **JWT-проверка во внутреннем воркере** — только в `api-gateway`
 11. **Internal-воркер с публичным `[[routes]]` в `wrangler.toml`** — все запросы только через gateway
 12. **Новый воркер под мелкую задачу** — встраивай в существующий
 13. **Хардкод промптов** — гибрид `config/prompts.ts` + D1

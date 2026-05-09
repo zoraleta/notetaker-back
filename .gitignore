@@ -29,6 +29,7 @@ drizzle/.snapshot/
 .env
 .env.*
 !.env.example
+secrets.local.md
 
 # IDE
 .vscode/
