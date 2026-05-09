@@ -99,7 +99,24 @@ RAG-классификация заметки по соседям в Vectorize: 
 - Y-query на той же DB → все X-соседи ниже 0.45 → sum 0 → `null`.
 - Cross-user Bob (пустой namespace) → нет соседей → `null`.
 
-### Develop / Discuss / Pack — Phase 5F-5G (TBD)
+### Develop F4 — Phase 5F
+Дашборд показывает 2-3 коротких заметки, у которых есть похожие соседи — кандидаты «дописать/развить тему».
+
+**Алгоритм** (`develop.service.ts`):
+1. Через SVC binding `NOTES` ai зовёт `GET /notes` (тот же эндпоинт, что у фронта). Заголовок `x-user-id` пробрасывается. notes возвращает массив, отсортированный `updatedAt DESC`.
+2. Фильтр по длине: `contentText < SHORT_NOTE_MAX = 600`.
+3. Берём первые `CANDIDATE_LIMIT = 20` (анти-DoS на больших коллекциях; свежие сверху достаточны для UI «что недавно недописал»).
+4. Для каждого кандидата `VECTORIZE.queryById(topK = NEIGHBORS_TOPK + 1)` в namespace юзера + `filter: { userId }` (двойной guard). Self исключаем, соседей со `score < NEIGHBOR_SCORE_MIN = 0.65` отбрасываем. Если ни одного соседа не осталось — кандидат не попадает в результат.
+5. **Theme-deduplication**: группируем кандидатов по `projectId` (NO_PROJECT — отдельный bucket `__none__`), оставляем top-1 в каждой группе по числу соседей (тай-брейкер — свежесть, благодаря `updatedAt DESC` входной сортировке + first-set-wins логике в `Map`). Без dedup тема с большим числом коротких заметок съедает все слоты suggestions; с dedup юзер видит вариативность тем.
+6. Сортируем дедуплицированный список по числу соседей desc, берём top `SUGGESTIONS_LIMIT = 3`.
+
+**Решение по cross-worker SVC.** ai зовёт notes через `env.NOTES.fetch` — это второй случай межворкерного SVC binding в системе после notes → ai (Phase 5B). Архитектурно симметрично, CLAUDE.md правило 8 разрешает. Альтернатива «gateway сам зовёт notes и передаёт список в ai» — менее чисто, gateway не должен знать форму notes-payload.
+
+**Soft-fail.** Если notes-воркер упал, `fetchUserNotes` возвращает `[]` → ai отдаёт `[]` → фронт скрывает блок suggestions. Не возвращаем 502 для всего F4: дашборд должен загрузиться даже при поломке одного из микросервисов.
+
+**Empirical scores** (DoD smoke на 2 X-cloudflare-shorts (Service Bindings) + 3 Y-cooking-shorts (борщ) + 5 long music notes): 2 кандидата (1 X + 1 Y, по одному на тему); long-IDs не попали; cross-user Bob → `[]`.
+
+### Discuss / Pack — Phase 5G (TBD)
 *Ещё не реализовано.*
 
 ## Зависимости
@@ -107,8 +124,8 @@ RAG-классификация заметки по соседям в Vectorize: 
 - **D1** (`env.DB`, общая база `notetaker`) → таблицы `settings`, `prompts`.
 - **Workers AI** (`env.AI: Ai`) — embedding (`@cf/baai/bge-m3`) и chat (`ALLOWED_MODELS`).
 - **Vectorize** (`env.VECTORIZE: Vectorize`, индекс `notetaker-vectors`).
+- **Service Binding `NOTES`** (`env.NOTES: Fetcher`) — добавлен в Phase 5F для F4 develop-suggestions; в Phase 5G будет использоваться для RAG-контекста discuss.
 - **Внешние пакеты:** `hono`, `@hono/zod-validator`, `zod`, `drizzle-orm`.
-- В Phase 5F добавится Service Binding `NOTES` → `notetaker-notes` (для F4 develop-suggestions и F5 discuss RAG).
 
 ## Routes (через gateway, под JWT-middleware)
 
@@ -127,6 +144,9 @@ RAG-классификация заметки по соседям в Vectorize: 
 
 **Реализовано (Phase 5E):**
 - `POST /ai/classify` → `200 { projectId: string | null, score: number | null }`. Body: `{ contentText: string(1..1MB) }`. Однообразный shape: при suggestion'е оба поля заполнены (`score` — сумма cosine), при отсутствии suggestion'а оба `null`. Без JWT → `401`. Empty body → `400 VALIDATION`.
+
+**Реализовано (Phase 5F):**
+- `GET /ai/develop-suggestions` → `200 [{ noteId, neighbors: [{ noteId, score }] }]`. Без тела/query. Возвращает 0..3 кандидата (короткие заметки с соседями выше threshold), один на тему благодаря theme-dedup. Если у юзера нет коротких или ни одного соседа выше 0.65 — `[]`. Без JWT → `401`.
 
 **Откладывается на следующие этапы:**
 - 5E: `POST /ai/classify`
@@ -156,6 +176,7 @@ Internal-эндпоинты **не проксируются через gateway**
 - `findSimilarToNote(env, userId, noteId, topK) → SearchHit[]` *(5B)* — `queryNoteVectorsById` с `topK+1`, выкидывает self, мапит. `[]`, если вектора нет.
 - `streamSummarize(env, text) → ReadableStream` *(5D)* — параллельно достаёт `getActiveModel` и `getPrompt('summarize')`, зовёт `env.AI.run(model, { messages, stream: true })`, отдаёт сырой SSE-поток без обёртки.
 - `classifyNote(env, userId, contentText) → ClassifyResult` *(5E)* — embed → `queryNoteVectors(topK=20)` → per-neighbor min-score filter (0.45) → sum по projectId (NO_PROJECT исключён) → max-sum > 0.75 → suggestion / null.
+- `findDevelopCandidates(env, userId) → DevelopCandidate[]` *(5F)* — `env.NOTES.fetch('GET /notes')` → filter длина < 600 → top-20 свежих → `queryNoteVectorsById` для каждого с фильтром score > 0.65 → group-by projectId → top-1 на тему → top-3 по числу соседей. Soft-fail на падении notes (возвращает `[]`).
 
 ## Queries (db/)
 
@@ -182,3 +203,4 @@ Internal-эндпоинты **не проксируются через gateway**
 - **JWT не валидируется здесь.** userId приходит заголовком `x-user-id` от gateway (или от notes для internal-эндпоинтов в 5B). CLAUDE.md → правило 11.
 - **Настройки глобальные на инстанс, не на пользователя.** `settings.active_model` и `prompts.<key>` влияют на всех (CLAUDE.md → «Настройки AI: гибрид config + D1»). Поэтому `/settings/*` в ai не проверяет `x-user-id`. JWT в gateway остаётся guard'ом «авторизован — значит может править».
 - **`PUT /settings/active-model` и `PUT /settings/prompts/:key` отвечают свежим `SettingsView`**, чтобы фронт не делал лишний `GET /settings` после записи.
+- **Stale-векторы при недоступности ai во время `DELETE /notes/:id` (known limitation).** notes-воркер делает `c.executionCtx.waitUntil(env.AI.fetch('/internal/vectors/delete'))` — non-blocking, без retry (CLAUDE.md Phase 5 решение #7). Если ai в этот момент недоступен (в dev — hot-reload, в проде — крайне редко), запись в D1 уйдёт в soft-delete, а вектор останется в Vectorize навсегда. Эффект: orphan-вектор может проявиться как «фантомный сосед» в `/search`/`/notes/:id/similar`/`/classify`/`/develop-suggestions`. **Восстановление:** ручной вызов `POST /internal/vectors/delete` с нужным `noteId` (через wrangler-fetch или admin-обвязку). Полноценное решение — admin endpoint mass-reindex — за рамками Phase 5 (CLAUDE.md «Векторный индекс»).

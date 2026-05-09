@@ -55,6 +55,15 @@
 			"remote": true
 		}
 	],
+	// Service Binding на notes — нужен для F4 (Phase 5F): ai зовёт `GET /notes`
+	// для выборки коротких заметок-кандидатов на «развитие». Симметрично к
+	// notes → ai (фоновая индексация Phase 5B). CLAUDE.md правило 8 это разрешает.
+	"services": [
+		{
+			"binding": "NOTES",
+			"service": "notetaker-notes"
+		}
+	],
 	"dev": {
 		"port": 8791
 	}

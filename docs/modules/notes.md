@@ -69,6 +69,8 @@ JWT здесь не валидируется (CLAUDE.md → правило 11).
 ## Internal endpoints / RPC
 Те же пути, что выше — gateway проксирует «как есть» (префиксы совпадают, `proxyToService` не переписывает URL). Других internal-эндпоинтов нет.
 
+С Phase 5F к этим же путям обращается **ai-воркер** через свой SVC binding `NOTES` (см. `docs/modules/ai.md` секция Develop F4). Контракт идентичен фронтовому: `x-user-id` в заголовке, JSON-ответ. Поэтому никаких отдельных internal-routes для ai не заводим — переиспользуем `GET /notes`.
+
 ## Services
 - `createNote(env, userId, input) → Result<NoteMutationResult>` — генерирует id, ставит `createdAt/updatedAt`, дефолтит `tags: []`, `projectId: null`, `title: ''`. Insert через `db/notes.queries.insertNote`. Возвращает `{ note, index: 'upsert' }`.
 - `listNotes(env, userId, filters) → Result<Note[]>` — обёртка над `listNotesByUser` (фильтр по `deletedAt IS NULL` уже внутри). Без index — список ничего не индексирует.

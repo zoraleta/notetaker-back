@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import type { AppBindings } from './config/env'
 import { classifyRoutes } from './routes/classify.routes'
+import { developRoutes } from './routes/develop.routes'
 import { searchRoutes } from './routes/search.routes'
 import { settingsRoutes } from './routes/settings.routes'
 import { summarizeRoutes } from './routes/summarize.routes'
@@ -20,6 +21,7 @@ app.route('/', searchRoutes)
 app.route('/', settingsRoutes)
 app.route('/', summarizeRoutes)
 app.route('/', classifyRoutes)
+app.route('/', developRoutes)
 
 app.onError((error, c) => {
 	if (error instanceof HTTPException) {
