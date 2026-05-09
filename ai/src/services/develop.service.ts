@@ -1,6 +1,6 @@
 import type { Env } from '../config/env'
 import { fetchUserNotes } from '../db/notes.client'
-import { NO_PROJECT, queryNoteVectorsById, vectorIdForNote, type NoteVectorMetadata } from '../db/vectors.queries'
+import { extractNeighborMatches, NO_PROJECT, queryNoteVectorsById } from '../db/vectors.queries'
 
 // F4 «develop-suggestions» (Phase 5F). На дашборде показываем 2-3 коротких
 // заметки с похожими соседями — кандидаты на «дописать/развить тему».
@@ -73,15 +73,9 @@ async function collectNeighbors(env: Env, userId: string, noteId: string): Promi
 		userId,
 		topK: NEIGHBORS_TOPK + 1, // +1 чтобы запас под self, который выкидываем ниже
 	})
-	const selfId = vectorIdForNote(noteId)
-	const neighbors: NeighborHit[] = []
-	for (const match of result.matches) {
-		if (match.id === selfId) continue
-		if (match.score < NEIGHBOR_SCORE_MIN) continue
-		const metadata = match.metadata as NoteVectorMetadata | undefined
-		if (!metadata || typeof metadata.noteId !== 'string') continue
-		neighbors.push({ noteId: metadata.noteId, score: match.score })
-		if (neighbors.length >= NEIGHBORS_TOPK) break
-	}
-	return neighbors
+	// `extractNeighborMatches` берёт self-skip + metadata-validation; F4-специфичный
+	// фильтр по minScore — снаружи (discuss-сервис в 5G такого порога не делает).
+	return extractNeighborMatches(result, noteId, NEIGHBORS_TOPK).filter(
+		(n) => n.score >= NEIGHBOR_SCORE_MIN,
+	)
 }

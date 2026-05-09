@@ -116,15 +116,57 @@ RAG-классификация заметки по соседям в Vectorize: 
 
 **Empirical scores** (DoD smoke на 2 X-cloudflare-shorts (Service Bindings) + 3 Y-cooking-shorts (борщ) + 5 long music notes): 2 кандидата (1 X + 1 Y, по одному на тему); long-IDs не попали; cross-user Bob → `[]`.
 
-### Discuss / Pack — Phase 5G (TBD)
-*Ещё не реализовано.*
+### Discuss F5 — Phase 5G
+Стриминг чата с RAG-контекстом из соседних заметок юзера. На вход — `noteId` (заметка-якорь) и история сообщений; на выход — SSE-поток ответа модели, с подмешанным контекстом из других заметок того же юзера.
+
+**Алгоритм** (`discuss.service.ts`):
+1. Параллельно (`Promise.all`) тянем активную модель, промпт `discuss` и RAG-контекст. RAG — самая медленная цепочка (queryById + N×GET notes), не дожидаемся последовательно.
+2. RAG-сборка (`gatherRagContext`):
+   - `VECTORIZE.queryById('note:'+noteId, { topK: RAG_TOPK + 1, filter: { userId } })` (двойной guard namespace+filter; `+1` под self).
+   - Self-skip + сбор первых `RAG_TOPK = 5` соседних `noteId`.
+   - `Promise.all` по `fetchNoteContentText(env, userId, id)` — N×`GET /notes/:id` через SVC binding `NOTES`. Параллельно, не последовательно: SVC binding — это прямой вызов JS-функции в одном runtime, миллисекунды на запрос.
+   - Фильтруем `null` (404/403/network-fail/невалидный JSON) и пустые строки.
+3. Сборка `messages`: `[systemPrompt, ragBlock?, ...userMessages]`. RAG — отдельным `system`-блоком, **не** конкатенацией с основным промптом (антипаттерн «шаблонные строки промптов с `${variables}` снаружи `getPrompt`»). Маркеры `===Заметка N===` отделяют контекст-блоки, чтобы модель не путала их с инструкциями.
+4. `env.AI.run(model, { messages, stream: true })` — SSE-поток отдаётся «как есть» через gateway без буферизации.
+
+**Graceful degrade RAG.** Три уровня поломки, ни один не возвращает 502:
+- У заметки-якоря нет вектора (только что создана, индексация в фоне) → `queryById` вернёт пустой `matches` → RAG = `[]` → ответ без контекста.
+- k из N соседей падают на `GET /notes/:id` (soft-delete между `queryById` и `fetch`, или notes-воркер недоступен) → `fetchNoteContentText` вернёт `null` для проблемных id → `filter` отбросит null'ы → RAG из (N-k) удачных.
+- Все N соседей упали → RAG = `[]` → ответ без контекста.
+
+Cross-user изоляция работает «бесплатно»: namespace=userId в `queryById` означает, что Bob с Alice'ин `noteId` получает пустой `matches` (вектор не лежит в Bob'овом namespace) → RAG=[] → стрим без leak'а Alice'иных данных. Дополнительный 403/404 от notes для якорной заметки не делаем — namespace-guard достаточен, лишний SVC-вызов на каждый `/discuss` не нужен.
+
+**Empirical scores** (DoD smoke на 6 alice TS-заметках):
+- Полный RAG (5 соседей) → `prompt_tokens=403`, ответ перечисляет всё из RAG (discriminated unions, const assertions, type narrowing/guards, extends, utility types Pick/Omit/Partial).
+- После soft-delete одной соседней → `prompt_tokens=345` (4 RAG), ответ полный без 502 = graceful degrade.
+- Bob с Alice'иным noteId → `prompt_tokens=101` (без RAG), модель отвечает «нужен доступ к заметкам» = cross-user изоляция.
+
+### Pack-into-project F5 — Phase 5G
+Структурированная упаковка диалога в проект для Phase 7. Без стрима: ждём полный ответ модели, парсим JSON, валидируем по Zod-схеме. На выход — `{ goal, stages: [{title, done}], openQuestions }` или `502 EXTERNAL` при поломке формата.
+
+**Алгоритм** (`pack.service.ts`):
+1. Параллельно тянем активную модель и промпт `pack-into-project`.
+2. `env.AI.run(model, { messages: [system, user(dialog)] })` без `stream` — нужен полный ответ для JSON.parse.
+3. `extractJsonBlock(raw)` — substring от первого `{` до последнего `}`. Llama 3.1/3.3 в практике 5G smoke возвращают либо чистый JSON, либо с минимальной markdown-обвязкой (` ```json `…` ``` `, преамбула «Вот ответ:»). Если LLM вернёт строго JSON — substring совпадёт со входом.
+4. `JSON.parse` → провал → `Result.err('Не удалось распарсить ответ модели', 'EXTERNAL')` → `502`.
+5. `projectPackSchema.safeParse` (Zod) → провал → `Result.err('Ответ модели не соответствует ожидаемой схеме проекта', 'EXTERNAL')` → `502`.
+6. Успех → `200 ProjectPack`.
+
+**Жёсткая Zod-валидация поверх `JSON.parse`** — потому что модель может вернуть валидный JSON (`JSON.parse` пройдёт), но с лишними/неправильными полями (`{"foo":"bar"}`). Без Zod-проверки фронт получит мусор без понятной ошибки. `safeParse` ловит оба случая (некорректный JSON И неправильную форму) одним механизмом.
+
+**Без `sourceNoteId`.** Спека предлагала optional `sourceNoteId` для возможной дополнительной RAG-контекстуализации, но на DoD это не используется — YAGNI (CLAUDE.md). Если когда-нибудь pack начнёт использовать контекст исходной заметки, добавим тогда.
+
+**Empirical** (DoD smoke):
+- Happy path → 200 с полным `{goal, stages, openQuestions}`.
+- Override prompt'а на «верни строку без скобок» → 502 «Не удалось распарсить ответ модели».
+- Override prompt'а на `{"foo":"bar","baz":42}` → 502 «Ответ модели не соответствует ожидаемой схеме проекта» (Zod ловит).
 
 ## Зависимости
 
 - **D1** (`env.DB`, общая база `notetaker`) → таблицы `settings`, `prompts`.
 - **Workers AI** (`env.AI: Ai`) — embedding (`@cf/baai/bge-m3`) и chat (`ALLOWED_MODELS`).
 - **Vectorize** (`env.VECTORIZE: Vectorize`, индекс `notetaker-vectors`).
-- **Service Binding `NOTES`** (`env.NOTES: Fetcher`) — добавлен в Phase 5F для F4 develop-suggestions; в Phase 5G будет использоваться для RAG-контекста discuss.
+- **Service Binding `NOTES`** (`env.NOTES: Fetcher`) — `GET /notes` для F4 develop-suggestions (Phase 5F) и `GET /notes/:id` для RAG-контекста F5 discuss (Phase 5G).
 - **Внешние пакеты:** `hono`, `@hono/zod-validator`, `zod`, `drizzle-orm`.
 
 ## Routes (через gateway, под JWT-middleware)
@@ -148,10 +190,9 @@ RAG-классификация заметки по соседям в Vectorize: 
 **Реализовано (Phase 5F):**
 - `GET /ai/develop-suggestions` → `200 [{ noteId, neighbors: [{ noteId, score }] }]`. Без тела/query. Возвращает 0..3 кандидата (короткие заметки с соседями выше threshold), один на тему благодаря theme-dedup. Если у юзера нет коротких или ни одного соседа выше 0.65 — `[]`. Без JWT → `401`.
 
-**Откладывается на следующие этапы:**
-- 5E: `POST /ai/classify`
-- 5F: `GET /ai/develop-suggestions`
-- 5G: `POST /ai/discuss`, `POST /ai/pack-into-project`
+**Реализовано (Phase 5G):**
+- `POST /ai/discuss` → стрим `text/event-stream` (формат Workers AI, как у `/summarize`). Body: `{ noteId: uuid, messages: [{role:'user'|'assistant', content: string(1..8000)}](1..50) }`. RAG-контекст подмешивается отдельным system-блоком из топ-5 соседей по Vectorize (через SVC binding `NOTES` для текстов). Невалидный body → `400 VALIDATION`. Без JWT → `401`. Никогда не отдаёт `502` из-за поломки RAG (graceful degrade).
+- `POST /ai/pack-into-project` → `200 { goal: string, stages: [{title, done}], openQuestions: string[] }`. Body: `{ dialog: string(1..100000) }`. Невалидный JSON / неправильная форма ответа модели → `502 EXTERNAL` с осмысленным сообщением. Невалидный body → `400 VALIDATION`. Без JWT → `401`.
 
 ## Internal endpoints / RPC
 
@@ -177,6 +218,9 @@ Internal-эндпоинты **не проксируются через gateway**
 - `streamSummarize(env, text) → ReadableStream` *(5D)* — параллельно достаёт `getActiveModel` и `getPrompt('summarize')`, зовёт `env.AI.run(model, { messages, stream: true })`, отдаёт сырой SSE-поток без обёртки.
 - `classifyNote(env, userId, contentText) → ClassifyResult` *(5E)* — embed → `queryNoteVectors(topK=20)` → per-neighbor min-score filter (0.45) → sum по projectId (NO_PROJECT исключён) → max-sum > 0.75 → suggestion / null.
 - `findDevelopCandidates(env, userId) → DevelopCandidate[]` *(5F)* — `env.NOTES.fetch('GET /notes')` → filter длина < 600 → top-20 свежих → `queryNoteVectorsById` для каждого с фильтром score > 0.65 → group-by projectId → top-1 на тему → top-3 по числу соседей. Soft-fail на падении notes (возвращает `[]`).
+- `streamDiscuss(env, userId, noteId, messages) → ReadableStream` *(5G)* — параллельно `Promise.all` достаёт `getActiveModel`, `getPrompt('discuss')` и RAG-контекст; собирает `messages: [system, ragBlock?, ...userMessages]`; `env.AI.run(model, { messages, stream: true })` → сырой SSE-поток.
+- `gatherRagContext(env, userId, noteId) → string[]` *(5G, приватная)* — `queryNoteVectorsById(topK=6)` → self-skip → первые 5 соседних `noteId` → `Promise.all` по `fetchNoteContentText` через SVC binding `NOTES` → фильтр `null` (graceful degrade на 404/403/network-fail). Возвращает 0..5 текстов.
+- `packDialogIntoProject(env, dialog) → Result<ProjectPack>` *(5G)* — `getActiveModel` + `getPrompt('pack-into-project')` параллельно → `env.AI.run` без `stream` → `extractJsonBlock` (substring `{...}` для случаев markdown-обёртки) → `JSON.parse` → `projectPackSchema.safeParse` (Zod). Любая поломка парсинга/формы → `Result.err(..., 'EXTERNAL')` → `502`.
 
 ## Queries (db/)
 
@@ -191,6 +235,8 @@ Internal-эндпоинты **не проксируются через gateway**
 - `deleteNoteVectorById(index, noteId) → void` *(5B)* — `Vectorize.deleteByIds`.
 - `queryNoteVectors(index, values, options) → VectorizeMatches` *(5B)* — `Vectorize.query` с двойным guard `namespace + filter:{userId}`.
 - `queryNoteVectorsById(index, noteId, options) → VectorizeMatches` *(5B)* — `Vectorize.queryById` с тем же двойным guard.
+- `fetchUserNotes(env, userId) → NotesListItem[]` *(5F)* — `env.NOTES.fetch('https://internal/notes')` с пробросом `x-user-id`; soft-fail на любой поломке (5xx/невалидный JSON/дрейф shape) → `[]`.
+- `fetchNoteContentText(env, userId, noteId) → string | null` *(5G)* — `env.NOTES.fetch('https://internal/notes/<id>')`; null на 404/403/network-fail/невалидный JSON. Используется в `gatherRagContext` для F5 discuss с graceful degrade.
 
 ## Ограничения
 

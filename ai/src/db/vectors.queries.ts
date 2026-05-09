@@ -100,3 +100,29 @@ export async function queryNoteVectorsById(
 		returnMetadata: 'all',
 	})
 }
+
+// Общий разбор результата `queryNoteVectorsById` для сценариев «соседи
+// этой заметки» (5F develop, 5G discuss). Скип self (тот же noteId всегда
+// в топе с score=1) и валидация формы metadata — две одинаковые проверки,
+// которые сервисам нужны до их собственного решения по score-filter'у.
+export interface NeighborMatch {
+	noteId: string
+	score: number
+}
+
+export function extractNeighborMatches(
+	matches: VectorizeMatches,
+	selfNoteId: string,
+	limit: number,
+): NeighborMatch[] {
+	const selfId = vectorIdForNote(selfNoteId)
+	const result: NeighborMatch[] = []
+	for (const match of matches.matches) {
+		if (match.id === selfId) continue
+		const metadata = match.metadata as NoteVectorMetadata | undefined
+		if (!metadata || typeof metadata.noteId !== 'string') continue
+		result.push({ noteId: metadata.noteId, score: match.score })
+		if (result.length >= limit) break
+	}
+	return result
+}

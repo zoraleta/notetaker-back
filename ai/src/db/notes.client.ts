@@ -41,3 +41,26 @@ export async function fetchUserNotes(env: Env, userId: string): Promise<NotesLis
 		return []
 	}
 }
+
+// Soft-fail семантика для RAG (Phase 5G): если k из N соседей упали (404 от
+// soft-delete между queryById и fetch, упавший notes-воркер, дрейф shape),
+// `/discuss` отдаёт ответ с RAG-подмножеством из (N-k) удачных, а не 502.
+// Поэтому возвращаем `string | null`, а не throw'аем — caller их фильтрует.
+export async function fetchNoteContentText(
+	env: Env,
+	userId: string,
+	noteId: string,
+): Promise<string | null> {
+	try {
+		const response = await env.NOTES.fetch(`https://internal/notes/${noteId}`, {
+			headers: { 'x-user-id': userId },
+		})
+		if (!response.ok) return null
+		const data = (await response.json()) as unknown
+		if (typeof data !== 'object' || data === null) return null
+		const text = (data as { contentText?: unknown }).contentText
+		return typeof text === 'string' ? text : null
+	} catch {
+		return null
+	}
+}
