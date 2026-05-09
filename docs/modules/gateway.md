@@ -37,6 +37,9 @@
 **AI-роуты (`src/routes/ai.routes.ts`, Phase 5B):**
 - `POST /ai/search` — proxy → `notetaker-ai` `/search` (с `internalPath: '/search'`, потому что `/ai/` — gateway-неймспейс, ai-воркер слушает без него).
 
+**Settings-роуты (`src/routes/settings.routes.ts`, Phase 5C):**
+- `GET /settings`, `PUT /settings/active-model`, `PUT /settings/prompts/:key`, `DELETE /settings/prompts/:key` → proxy → `notetaker-ai` (тот же путь, без `internalPath` — префиксы совпадают). Защищены `jwtMiddleware` через `app.use('/settings/*', jwtMiddleware)`. ai-воркер сам `userId` не использует (настройки глобальные), но JWT всё равно обязателен — это guard «авторизован — может править».
+
 Тело запроса валидируется в целевых internal-воркерах, gateway его не парсит и не дублирует Zod-схемы. Стримы через SVC binding передаются «как есть» — `proxyToService` возвращает `target.fetch(...)` напрямую, без `.json()`/`.text()`, поэтому `text/event-stream` (Phase 5D summarize, 5G discuss) пройдут без буферизации.
 
 ## Зависимости
@@ -56,8 +59,9 @@
 - `POST/GET/GET/:id/PATCH/:id/DELETE/:id` под `/notes` — F2 CRUD заметок. Защищены JWT-middleware. Контракт описан в `docs/modules/notes.md`.
 - `GET /notes/:id/similar` — F8 «Похожие заметки», прокси в `notetaker-ai`. Контракт в `docs/modules/ai.md`.
 - `POST /ai/search` — F8 семантический поиск, прокси в `notetaker-ai`. Контракт в `docs/modules/ai.md`.
+- `GET /settings`, `PUT /settings/active-model`, `PUT /settings/prompts/:key`, `DELETE /settings/prompts/:key` — F7 AI-настройки, прокси в `notetaker-ai`. Контракт в `docs/modules/ai.md`.
 
-Остальные публичные роуты появятся в Phase 5C-G и 6-7 (`/ai/summarize`, `/ai/classify`, `/ai/discuss`, `/ai/pack-into-project`, `/ai/develop-suggestions`, `/settings/*`, `/projects/*`, `/links/*`).
+Остальные публичные роуты появятся в Phase 5D-G и 6-7 (`/ai/summarize`, `/ai/classify`, `/ai/discuss`, `/ai/pack-into-project`, `/ai/develop-suggestions`, `/projects/*`, `/links/*`).
 
 ## Internal endpoints / RPC
 Не имеет — gateway сам ни с кем не говорит как сервер для других воркеров. Только клиент Service Bindings.

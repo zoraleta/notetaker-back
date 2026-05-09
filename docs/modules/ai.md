@@ -38,8 +38,33 @@ Embedding-модель — отдельная константа (`EMBEDDING_MOD
 - `projectId === null` хранится в metadata как пустая строка (`NO_PROJECT = ''`) — Vectorize не разрешает `null` в `VectorizeVectorMetadataValue`. На чтении `''` маппится обратно в `null` для фронта.
 - Если ai-воркер упал — CRUD заметки уже успешен, юзер ничего не теряет; ошибка фоновой задачи уйдёт в `wrangler tail`. Mass-reindex как admin-операция = за рамками Phase 5.
 
-### Settings F7 — Phase 5C (TBD)
-*Ещё не реализовано.* CRUD `/settings/*` для управления `active_model` и `prompts.<key>` через UI.
+### Settings F7 — Phase 5C
+CRUD AI-настроек. Override активной chat-модели и системных промптов через UI без редеплоя.
+
+**Контракт `GET /settings`:**
+```
+{
+  activeModel: AllowedModel,
+  allowedModels: AllowedModel[],
+  embeddingModel: '@cf/baai/bge-m3',
+  embeddingDimensions: 1024,
+  prompts: {
+    [key in PromptKey]: { default: string, override: string | null, effective: string }
+  }
+}
+```
+- `default` — из `DEFAULT_PROMPTS` (whitelist в коде).
+- `override` — сырая запись из D1 (`null`, если нет).
+- `effective` — что реально пойдёт в LLM (override после trim, иначе default).
+
+**Запись:**
+- `PUT /settings/active-model { model }` — Zod-проверка `model` по `z.enum(ALLOWED_MODELS)`. Невалидное значение → `400 VALIDATION` с сообщением Zod (whitelist не раскрывается клиенту, но `GET /settings.allowedModels` его уже отдаёт).
+- `PUT /settings/prompts/:key { value }` — Zod-проверка `key` по `z.enum(Object.keys(DEFAULT_PROMPTS))`; `value` — `string ≤ 8000` симв., `trim().length ≥ 1`. Пробельная строка → `400 VALIDATION`.
+- `DELETE /settings/prompts/:key` — Zod-проверка `key`. Идемпотентно: повторный DELETE → `204` даже если записи не было.
+
+**Возврат:** `PUT` отвечает свежим `SettingsView` (как `GET /settings`) — фронт не делает вторичный round-trip. `DELETE` отвечает `204`.
+
+**Глобальность.** Записи в `settings`/`prompts` — **на инстанс**, не на пользователя. Per-user override не реализован (over-engineering для теста; см. tech-plan §«Гибрид config + D1»). Поэтому на роутах `/settings/*` нет `requireUserId` — JWT остаётся в gateway как guard на уровень «авторизован ли вообще», но userId внутрь ai не пробрасывается семантически.
 
 ### Summarize / Classify / Develop / Discuss / Pack — Phase 5D-5G (TBD)
 *Ещё не реализовано.*
@@ -58,8 +83,13 @@ Embedding-модель — отдельная константа (`EMBEDDING_MOD
 - `POST /ai/search` — body `{ query: string(1..2000), topK?: number(1..50, default 10) }` → `200 [{ noteId, score, projectId: string|null }]`. Семантический поиск по эмбеддингу запроса в namespace юзера.
 - `GET /notes/:id/similar` — query `?topK=N(default 5)` → `200 [{ noteId, score, projectId }]`. Похожие заметки по эмбеддингу указанной заметки (self исключён). `200 []`, если у заметки ещё нет вектора. **gateway регистрирует этот роут ДО `/notes/:id`** (Hono first-match), чтобы `/:id` не поглотил `/:id/similar`.
 
+**Реализовано (Phase 5C):**
+- `GET /settings` → `200 SettingsView` (см. секцию «Settings F7» выше). Без тела.
+- `PUT /settings/active-model { model: AllowedModel }` → `200 SettingsView`. Невалидная модель → `400 VALIDATION`.
+- `PUT /settings/prompts/:key { value: string ≤ 8000 }` → `200 SettingsView`. Невалидный `key` или пробельный `value` → `400 VALIDATION`.
+- `DELETE /settings/prompts/:key` → `204`. Невалидный `key` → `400 VALIDATION`. Идемпотентно.
+
 **Откладывается на следующие этапы:**
-- 5C: `GET /settings`, `PUT /settings/active-model`, `PUT /settings/prompts/:key`, `DELETE /settings/prompts/:key`
 - 5D: `POST /ai/summarize`
 - 5E: `POST /ai/classify`
 - 5F: `GET /ai/develop-suggestions`
@@ -73,12 +103,14 @@ Embedding-модель — отдельная константа (`EMBEDDING_MOD
 
 Internal-эндпоинты **не проксируются через gateway** (фронту недоступны). Валидируются Zod (internal ≠ untrusted). `requireUserId` middleware применяется ко всем `/internal/vectors/*`.
 
-**Smoke (`/__smoke/settings`):** временный, для проверки гибрида settings из 5A. Удаляется в 5C.
-
 ## Services
 
 - `getActiveModel(env) → AllowedModel` *(5A)* — гибрид: D1 → whitelist-проверка → fallback на `DEFAULT_MODEL`.
 - `getPrompt(env, key: PromptKey) → string` *(5A)* — гибрид: D1 override → trim → fallback на `DEFAULT_PROMPTS[key]`.
+- `listSettings(env) → SettingsView` *(5C)* — snapshot всей AI-конфигурации (activeModel + prompts с default/override/effective + embedding-константы + allowedModels). Один проход по `listPromptOverrides`, без N+1 на ключ.
+- `setActiveModel(env, model: AllowedModel) → void` *(5C)* — upsert в `settings.active_model`. Whitelist валидируется на роуте Zod-ом; в сервис попадает уже типизированное значение.
+- `setPromptOverride(env, key: PromptKey, value: string) → void` *(5C)* — upsert в `prompts`. `key` whitelist'ится на роуте; `value` ожидается уже trim'нутым непустым.
+- `deletePromptOverride(env, key: PromptKey) → void` *(5C)* — DELETE; идемпотентно.
 - `embedText(env, text) → number[]` *(5B)* — единственное место, которое зовёт `env.AI.run(EMBEDDING_MODEL)`. Defensive-проверка `length === EMBEDDING_DIMENSIONS`, иначе throw → 500.
 - `upsertNote(env, { noteId, userId, contentText, projectId }) → void` *(5B)* — `embedText` → `db/upsertNoteVector`.
 - `deleteNote(env, noteId) → void` *(5B)* — `db/deleteNoteVectorById`.
@@ -90,6 +122,7 @@ Internal-эндпоинты **не проксируются через gateway**
 - `getSetting(db, key) → Setting | null` *(5A)* — select по PK.
 - `setSetting(db, key, value) → void` *(5A)* — upsert через `onConflictDoUpdate` (защита от гонки).
 - `getPromptOverride(db, key) → PromptOverride | null` *(5A)* — select по PK.
+- `listPromptOverrides(db) → PromptOverride[]` *(5C)* — все override'ы разом (для `listSettings`, без фильтра).
 - `setPromptOverride(db, key, value) → void` *(5A)* — upsert.
 - `deletePromptOverride(db, key) → void` *(5A)* — DELETE без RETURNING (идемпотентно).
 - `vectorIdForNote(noteId) → string` *(5B)* — детерминированный id `note:<uuid>`.
@@ -107,4 +140,5 @@ Internal-эндпоинты **не проксируются через gateway**
 - **Vectorize в local dev требует `remote: true`** в `wrangler.jsonc` (см. `ai/wrangler.jsonc`); Workers AI тоже работает только remote (CLAUDE.md → «Команды»). Нужен `wrangler login`.
 - **Vectorize требует metadata-index на полях, по которым идёт `filter`.** Без `wrangler vectorize create-metadata-index notetaker-vectors --property-name=userId --type=string` запрос с `filter: { userId }` возвращает пустой результат — даже если namespace совпадает и вектор существует. Это **обязательный setup-шаг** для прода (одноразово), и для уже записанных векторов индекс пополняется только при следующем upsert (Cloudflare-конвенция). Список текущих индексов: `wrangler vectorize list-metadata-index notetaker-vectors`.
 - **JWT не валидируется здесь.** userId приходит заголовком `x-user-id` от gateway (или от notes для internal-эндпоинтов в 5B). CLAUDE.md → правило 11.
-- **Smoke-эндпоинты `/__smoke/*`** существуют только в Phase 5A для DoD-проверок; **удаляются** в 5B/5C при появлении настоящих vector- и settings-роутов. Не подключаются к gateway.
+- **Настройки глобальные на инстанс, не на пользователя.** `settings.active_model` и `prompts.<key>` влияют на всех (CLAUDE.md → «Настройки AI: гибрид config + D1»). Поэтому `/settings/*` в ai не проверяет `x-user-id`. JWT в gateway остаётся guard'ом «авторизован — значит может править».
+- **`PUT /settings/active-model` и `PUT /settings/prompts/:key` отвечают свежим `SettingsView`**, чтобы фронт не делал лишний `GET /settings` после записи.

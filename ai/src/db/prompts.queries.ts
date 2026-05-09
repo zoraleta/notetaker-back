@@ -11,7 +11,17 @@ export async function getPromptOverride(db: D1Database, key: string): Promise<Pr
 	return rows[0] ?? null
 }
 
-export async function setPromptOverride(db: D1Database, key: string, value: string): Promise<void> {
+// Все override'ы разом — для GET /settings (Phase 5C). Без фильтра по ключу:
+// whitelist у нас 4 строки, лишние записи (от старых релизов) сервис всё равно
+// игнорирует — мы джойним только по `Object.keys(DEFAULT_PROMPTS)`.
+export async function listPromptOverrides(db: D1Database): Promise<PromptOverride[]> {
+	return drizzle(db).select().from(prompts)
+}
+
+// db-слой описывает физическую операцию (upsert / remove строки), сервис —
+// доменную (set / delete override'а). Имена развели, чтобы не плодить
+// `as Row`-алиасы на импортах.
+export async function upsertPromptOverride(db: D1Database, key: string, value: string): Promise<void> {
 	const now = new Date()
 	await drizzle(db)
 		.insert(prompts)
@@ -25,6 +35,6 @@ export async function setPromptOverride(db: D1Database, key: string, value: stri
 // DELETE без RETURNING: удаляем запись и не сообщаем, существовала ли она —
 // сервис в Phase 5C всё равно вернёт 204 (идемпотентно). Если ничего не удалили,
 // `getPromptOverride` после вернёт `null`, и `getPrompt` отдаст дефолт.
-export async function deletePromptOverride(db: D1Database, key: string): Promise<void> {
+export async function removePromptOverride(db: D1Database, key: string): Promise<void> {
 	await drizzle(db).delete(prompts).where(eq(prompts.key, key))
 }

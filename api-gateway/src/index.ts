@@ -6,6 +6,7 @@ import { jwtMiddleware } from './middleware/jwt.middleware'
 import { aiRoutes } from './routes/ai.routes'
 import { authRoutes } from './routes/auth.routes'
 import { notesRoutes } from './routes/notes.routes'
+import { settingsRoutes } from './routes/settings.routes'
 
 // Public воркер `notetaker-api-gateway`. Единственная точка входа для фронта:
 // CORS + JWT + проксирование во внутренние воркеры через Service Bindings.
@@ -30,6 +31,7 @@ app.use('/settings/*', jwtMiddleware)
 // Защищённые роуты — после JWT-middleware.
 app.route('/notes', notesRoutes)
 app.route('/ai', aiRoutes)
+app.route('/settings', settingsRoutes)
 
 // Централизованный обработчик непредвиденных ошибок (CLAUDE.md → правило 5).
 // Ожидаемые ошибки приходят как Result<T> из internal-воркеров и проксируются
