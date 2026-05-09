@@ -34,8 +34,9 @@
 - `POST /notes`, `GET /notes`, `GET /notes/:id`, `PATCH /notes/:id`, `DELETE /notes/:id` → proxy → `notetaker-notes` (тот же путь). Префикс совпадает, поэтому `proxyToService` вызывается без `internalPath` и URL сохраняется как есть. `x-user-id` берётся из `c.get('user').id` (поставлен JWT-middleware).
 - `GET /notes/:id/similar` — особый случай: путь под `/notes/`, но эндпоинт принадлежит AI (F8 «Похожие заметки»). Прокси идёт в `notetaker-ai`, не в `notetaker-notes`. **Регистрация ДО `/:id`** в `Hono` (first-match): без правильного порядка `/:id` поглотит `/:id/similar`.
 
-**AI-роуты (`src/routes/ai.routes.ts`, Phase 5B):**
-- `POST /ai/search` — proxy → `notetaker-ai` `/search` (с `internalPath: '/search'`, потому что `/ai/` — gateway-неймспейс, ai-воркер слушает без него).
+**AI-роуты (`src/routes/ai.routes.ts`, Phase 5B/5D):**
+- `POST /ai/search` *(5B)* — proxy → `notetaker-ai` `/search` (с `internalPath: '/search'`, потому что `/ai/` — gateway-неймспейс, ai-воркер слушает без него).
+- `POST /ai/summarize` *(5D)* — proxy → `notetaker-ai` `/summarize`. SSE-стрим (`text/event-stream`); `authenticatedProxy` возвращает `target.fetch(...)` напрямую, поэтому ReadableStream проходит без буферизации.
 
 **Settings-роуты (`src/routes/settings.routes.ts`, Phase 5C):**
 - `GET /settings`, `PUT /settings/active-model`, `PUT /settings/prompts/:key`, `DELETE /settings/prompts/:key` → proxy → `notetaker-ai` (тот же путь, без `internalPath` — префиксы совпадают). Защищены `jwtMiddleware` через `app.use('/settings/*', jwtMiddleware)`. ai-воркер сам `userId` не использует (настройки глобальные), но JWT всё равно обязателен — это guard «авторизован — может править».
@@ -59,9 +60,10 @@
 - `POST/GET/GET/:id/PATCH/:id/DELETE/:id` под `/notes` — F2 CRUD заметок. Защищены JWT-middleware. Контракт описан в `docs/modules/notes.md`.
 - `GET /notes/:id/similar` — F8 «Похожие заметки», прокси в `notetaker-ai`. Контракт в `docs/modules/ai.md`.
 - `POST /ai/search` — F8 семантический поиск, прокси в `notetaker-ai`. Контракт в `docs/modules/ai.md`.
+- `POST /ai/summarize` — F1 SSE-саммари статьи, прокси в `notetaker-ai`. Контракт в `docs/modules/ai.md`.
 - `GET /settings`, `PUT /settings/active-model`, `PUT /settings/prompts/:key`, `DELETE /settings/prompts/:key` — F7 AI-настройки, прокси в `notetaker-ai`. Контракт в `docs/modules/ai.md`.
 
-Остальные публичные роуты появятся в Phase 5D-G и 6-7 (`/ai/summarize`, `/ai/classify`, `/ai/discuss`, `/ai/pack-into-project`, `/ai/develop-suggestions`, `/projects/*`, `/links/*`).
+Остальные публичные роуты появятся в Phase 5E-G и 6-7 (`/ai/classify`, `/ai/discuss`, `/ai/pack-into-project`, `/ai/develop-suggestions`, `/projects/*`, `/links/*`).
 
 ## Internal endpoints / RPC
 Не имеет — gateway сам ни с кем не говорит как сервер для других воркеров. Только клиент Service Bindings.

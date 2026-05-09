@@ -3,6 +3,7 @@ import { HTTPException } from 'hono/http-exception'
 import type { AppBindings } from './config/env'
 import { searchRoutes } from './routes/search.routes'
 import { settingsRoutes } from './routes/settings.routes'
+import { summarizeRoutes } from './routes/summarize.routes'
 import { vectorsRoutes } from './routes/vectors.routes'
 
 // Internal-воркер `notetaker-ai` (Phase 5). Доступен только через
@@ -16,6 +17,7 @@ app.get('/', (c) => c.json({ status: 'ok', worker: 'notetaker-ai' }, 200))
 app.route('/', vectorsRoutes)
 app.route('/', searchRoutes)
 app.route('/', settingsRoutes)
+app.route('/', summarizeRoutes)
 
 app.onError((error, c) => {
 	if (error instanceof HTTPException) {

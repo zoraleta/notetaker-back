@@ -16,4 +16,10 @@ import { authenticatedProxy } from '../lib/proxy'
 // Тело и query валидируются в notetaker-ai (Zod-схемы там же), gateway
 // не парсит и не дублирует валидацию.
 
-export const aiRoutes = new Hono<AppBindings>().post('/search', authenticatedProxy('AI', '/search'))
+// Стримы (text/event-stream) проходят через Service Bindings прозрачно:
+// `authenticatedProxy` возвращает `target.fetch(...)` без `.json()`/`.text()`,
+// Hono тоже не буферизует Response с ReadableStream. Поэтому `/summarize`
+// (Phase 5D, SSE) и будущий `/discuss` (Phase 5G) используют тот же helper.
+export const aiRoutes = new Hono<AppBindings>()
+	.post('/search', authenticatedProxy('AI', '/search'))
+	.post('/summarize', authenticatedProxy('AI', '/summarize'))
