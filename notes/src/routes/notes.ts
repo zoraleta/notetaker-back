@@ -1,8 +1,10 @@
-import { Hono, type Context } from 'hono'
+import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import type { AppBindings } from '../config/env'
 import { requireUserId } from '../lib/user-context'
+import { triggerVectorIndex } from '../lib/index-trigger'
+import { errResponse, toResponse, validationHook } from '../lib/http'
 import {
 	createNote,
 	deleteNote,
@@ -10,7 +12,6 @@ import {
 	listNotes,
 	updateNote,
 } from '../services/notes.service'
-import type { Result, ResultErrorCode } from '../lib/result'
 
 // Лимиты длины полей. Cloudflare Workers держит тело запроса до 100 МБ,
 // но прикладной разумный потолок куда меньше — иначе одна заметка может
@@ -56,31 +57,13 @@ const listQuerySchema = z.object({
 
 const idParamSchema = z.object({ id: z.uuid() })
 
-// Маппинг кода ошибки в HTTP-статус. Один источник правды.
-const STATUS_BY_CODE: Record<ResultErrorCode, 400 | 401 | 403 | 404 | 502> = {
-	VALIDATION: 400,
-	UNAUTHORIZED: 401,
-	FORBIDDEN: 403,
-	NOT_FOUND: 404,
-	EXTERNAL: 502,
-}
-
-// Хук-форматтер @hono/zod-validator: единый формат { error, code: 'VALIDATION' }
-// (выровнен с доменными ошибками). Сообщение из первого issue схемы.
-const validationHook = ((result, c) => {
-	if (!result.success) {
-		return c.json(
-			{ error: result.error.issues[0]?.message ?? 'Невалидные данные', code: 'VALIDATION' as const },
-			400,
-		)
-	}
-}) satisfies Parameters<typeof zValidator>[2]
-
 export const notesRoutes = new Hono<AppBindings>()
 	.use('*', requireUserId)
 	.post('/notes', zValidator('json', createSchema, validationHook), async (c) => {
 		const result = await createNote(c.env, c.get('userId'), c.req.valid('json'))
-		return toResponse(c, result, 201)
+		if (!result.ok) return errResponse(c, result)
+		triggerVectorIndex(c, result.data.index)
+		return c.json(result.data.note, 201)
 	})
 	.get('/notes', zValidator('query', listQuerySchema, validationHook), async (c) => {
 		const result = await listNotes(c.env, c.get('userId'), c.req.valid('query'))
@@ -98,21 +81,15 @@ export const notesRoutes = new Hono<AppBindings>()
 		async (c) => {
 			const { id } = c.req.valid('param')
 			const result = await updateNote(c.env, c.get('userId'), id, c.req.valid('json'))
-			return toResponse(c, result, 200)
+			if (!result.ok) return errResponse(c, result)
+			triggerVectorIndex(c, result.data.index)
+			return c.json(result.data.note, 200)
 		},
 	)
 	.delete('/notes/:id', zValidator('param', idParamSchema, validationHook), async (c) => {
 		const { id } = c.req.valid('param')
 		const result = await deleteNote(c.env, c.get('userId'), id)
-		if (!result.ok) {
-			return c.json({ error: result.error, code: result.code }, STATUS_BY_CODE[result.code])
-		}
+		if (!result.ok) return errResponse(c, result)
+		triggerVectorIndex(c, result.data.index)
 		return new Response(null, { status: 204 })
 	})
-
-function toResponse<T>(c: Context<AppBindings>, result: Result<T>, successStatus: 200 | 201) {
-	if (result.ok) {
-		return c.json(result.data, successStatus)
-	}
-	return c.json({ error: result.error, code: result.code }, STATUS_BY_CODE[result.code])
-}

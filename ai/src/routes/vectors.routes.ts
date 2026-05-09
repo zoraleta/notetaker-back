@@ -1,0 +1,44 @@
+import { Hono } from 'hono'
+import { zValidator } from '@hono/zod-validator'
+import { z } from 'zod'
+import type { AppBindings } from '../config/env'
+import { requireUserId } from '../lib/user-context'
+import { validationHook } from '../lib/http'
+import { deleteNote, upsertNote } from '../services/vectors.service'
+
+// Internal-роуты индексации. Вызываются из notes-воркера через Service
+// Binding `AI` после успешного CRUD заметки (Phase 5B-5). Не проксируются
+// через gateway — путь `/internal/*` фронту недоступен.
+//
+// Зод-валидация обязательна: «internal != untrusted» (правка после
+// api-guardian). Контракт userId — заголовок `x-user-id`; body — domain data.
+
+const MAX_TEXT = 1_000_000 // ~1 МБ — синхронизировано с лимитом notes-воркера.
+
+const upsertSchema = z.object({
+	noteId: z.uuid(),
+	contentText: z.string().min(1).max(MAX_TEXT),
+	projectId: z.string().min(1).nullable(),
+})
+
+const deleteSchema = z.object({
+	noteId: z.uuid(),
+})
+
+export const vectorsRoutes = new Hono<AppBindings>()
+	.use('/internal/vectors/*', requireUserId)
+	.post('/internal/vectors/upsert', zValidator('json', upsertSchema, validationHook), async (c) => {
+		const body = c.req.valid('json')
+		await upsertNote(c.env, {
+			noteId: body.noteId,
+			userId: c.get('userId'),
+			contentText: body.contentText,
+			projectId: body.projectId,
+		})
+		return new Response(null, { status: 204 })
+	})
+	.post('/internal/vectors/delete', zValidator('json', deleteSchema, validationHook), async (c) => {
+		const body = c.req.valid('json')
+		await deleteNote(c.env, body.noteId)
+		return new Response(null, { status: 204 })
+	})

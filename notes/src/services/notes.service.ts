@@ -26,7 +26,28 @@ export interface UpdateNoteInput {
 	tags?: string[]
 }
 
-export async function createNote(env: Env, userId: string, input: CreateNoteInput): Promise<Result<Note>> {
+// Действие, которое роут должен запустить через c.executionCtx.waitUntil
+// после успешного CRUD заметки. Сервис остаётся HTTP-agnostic (CLAUDE.md →
+// правило 2): не принимает ExecutionContext, не зовёт env.AI.fetch сам.
+// Discriminated union вместо двух отдельных полей — фиксирует, что upsert
+// и delete взаимоисключающие.
+export type IndexAction =
+	| { kind: 'upsert'; userId: string; noteId: string; contentText: string; projectId: string | null }
+	| { kind: 'delete'; userId: string; noteId: string }
+
+// CRUD-операции возвращают и заметку (для ответа клиенту), и IndexAction
+// (для роутового waitUntil). Удаление возвращает только action — самой
+// строки в ответе нет (204).
+export interface NoteMutationResult {
+	note: Note
+	index: IndexAction
+}
+
+export interface DeleteMutationResult {
+	index: IndexAction
+}
+
+export async function createNote(env: Env, userId: string, input: CreateNoteInput): Promise<Result<NoteMutationResult>> {
 	const now = new Date()
 	const note = await insertNote(env.DB, {
 		id: crypto.randomUUID(),
@@ -39,7 +60,7 @@ export async function createNote(env: Env, userId: string, input: CreateNoteInpu
 		createdAt: now,
 		updatedAt: now,
 	})
-	return ok(note)
+	return ok({ note, index: upsertActionFor(note) })
 }
 
 export async function listNotes(env: Env, userId: string, filters: ListNotesFilters): Promise<Result<Note[]>> {
@@ -56,20 +77,22 @@ export async function updateNote(
 	userId: string,
 	id: string,
 	input: UpdateNoteInput,
-): Promise<Result<Note>> {
+): Promise<Result<NoteMutationResult>> {
 	const authResult = await authoriseNote(env, id, userId)
 	if (!authResult.ok) return authResult
 
 	const updated = await updateNoteFields(env.DB, id, { ...input, updatedAt: new Date() })
-	return ok(updated)
+	return ok({ note: updated, index: upsertActionFor(updated) })
 }
 
-export async function deleteNote(env: Env, userId: string, id: string): Promise<Result<void>> {
+export async function deleteNote(env: Env, userId: string, id: string): Promise<Result<DeleteMutationResult>> {
 	const authResult = await authoriseNote(env, id, userId)
 	if (!authResult.ok) return authResult
 
 	await softDeleteNote(env.DB, id, new Date())
-	return ok(undefined)
+	return ok({
+		index: { kind: 'delete', userId, noteId: id },
+	})
 }
 
 // Единая авторизация заметки. Различает «нет/удалена» (404) и «чужая» (403):
@@ -85,4 +108,14 @@ async function authoriseNote(env: Env, id: string, userId: string): Promise<Resu
 		return err('Нет доступа к заметке', 'FORBIDDEN')
 	}
 	return ok(note)
+}
+
+function upsertActionFor(note: Note): IndexAction {
+	return {
+		kind: 'upsert',
+		userId: note.userId,
+		noteId: note.id,
+		contentText: note.contentText,
+		projectId: note.projectId,
+	}
 }

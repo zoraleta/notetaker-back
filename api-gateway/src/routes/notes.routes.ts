@@ -1,24 +1,25 @@
-import { Hono, type Context } from 'hono'
+import { Hono } from 'hono'
 import type { AppBindings } from '../config/env'
-import { proxyToService } from '../lib/proxy'
+import { authenticatedProxy } from '../lib/proxy'
 
-// Защищённые роуты заметок (F2). JWT-middleware вешается в src/index.ts на
-// префикс `/notes/*`, поэтому к моменту входа сюда у нас уже валидный
-// `c.get('user')`. Префикс пути в gateway и в notetaker-notes одинаковый
-// (`/notes/...`) — `internalPath` не переписываем, helper сохраняет URL.
+// Защищённые роуты заметок (F2). JWT-middleware вешается в src/index.ts
+// на префикс `/notes/*`, поэтому к моменту входа сюда `c.get('user')` уже
+// валидирован.
 //
-// Тело и query валидируются в notetaker-notes (Zod-схемы там же), gateway
+// `/:id/similar` — особый случай: путь под /notes/, но эндпоинт принадлежит
+// AI (F8 «Похожие заметки»). Прокси идёт в notetaker-ai, не в notetaker-notes.
+// **Регистрация ДО `/:id`** — Hono использует first-match, без правильного
+// порядка `/:id` поглотит `/:id/similar`.
+//
+// Тело и query валидируются в целевом воркере (Zod-схемы там же), gateway
 // не парсит и не дублирует валидацию.
-const proxyNotes = (c: Context<AppBindings>): Promise<Response> =>
-	proxyToService({
-		target: c.env.NOTES,
-		request: c.req.raw,
-		userId: c.get('user').id,
-	})
+const proxyNotes = authenticatedProxy('NOTES')
+const proxyAiSimilar = authenticatedProxy('AI')
 
 export const notesRoutes = new Hono<AppBindings>()
 	.post('/', proxyNotes)
 	.get('/', proxyNotes)
+	.get('/:id/similar', proxyAiSimilar)
 	.get('/:id', proxyNotes)
 	.patch('/:id', proxyNotes)
 	.delete('/:id', proxyNotes)

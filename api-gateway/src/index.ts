@@ -3,6 +3,7 @@ import { HTTPException } from 'hono/http-exception'
 import type { AppBindings } from './config/env'
 import { corsMiddleware } from './middleware/cors.middleware'
 import { jwtMiddleware } from './middleware/jwt.middleware'
+import { aiRoutes } from './routes/ai.routes'
 import { authRoutes } from './routes/auth.routes'
 import { notesRoutes } from './routes/notes.routes'
 
@@ -28,6 +29,7 @@ app.use('/settings/*', jwtMiddleware)
 
 // Защищённые роуты — после JWT-middleware.
 app.route('/notes', notesRoutes)
+app.route('/ai', aiRoutes)
 
 // Централизованный обработчик непредвиденных ошибок (CLAUDE.md → правило 5).
 // Ожидаемые ошибки приходят как Result<T> из internal-воркеров и проксируются

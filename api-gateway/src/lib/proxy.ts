@@ -1,3 +1,6 @@
+import type { Context } from 'hono'
+import type { AppBindings, Env } from '../config/env'
+
 // Хелпер для прозрачного проксирования запроса в internal-воркер
 // через Service Binding (CLAUDE.md → правило 8 «Worker→worker — только Service Bindings»).
 //
@@ -31,4 +34,25 @@ export function proxyToService({ target, request, internalPath, userId }: ProxyO
 	}
 
 	return target.fetch(proxied)
+}
+
+// Только Service-Binding-биндинги (Fetcher), не D1/JWT_SECRET — иначе getTarget
+// мог бы случайно вернуть DB и упасть на target.fetch.
+type FetcherKey = {
+	[K in keyof Env]: Env[K] extends Fetcher ? K : never
+}[keyof Env]
+
+// Factory защищённого прокси-handler-а для роутов под JWT-middleware.
+// Используется в `notes.routes.ts` и `ai.routes.ts`: к моменту вызова
+// `c.get('user')` уже валидирован, userId автоматически уходит заголовком
+// `x-user-id`. internalPath опциональный — для случаев, когда префикс
+// gateway отличается от пути в целевом воркере (например, `/ai/search` → `/search`).
+export function authenticatedProxy(targetKey: FetcherKey, internalPath?: string) {
+	return (c: Context<AppBindings>): Promise<Response> =>
+		proxyToService({
+			target: c.env[targetKey],
+			request: c.req.raw,
+			internalPath,
+			userId: c.get('user').id,
+		})
 }

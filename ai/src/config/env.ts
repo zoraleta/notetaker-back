@@ -7,7 +7,8 @@
 export interface Env {
 	DB: D1Database
 	AI: Ai
-	VECTORIZE: VectorizeIndex
+	// `Vectorize` (новый класс с queryById/deleteByIds/getByIds), не `VectorizeIndex` (beta).
+	VECTORIZE: Vectorize
 }
 
 export type Variables = {

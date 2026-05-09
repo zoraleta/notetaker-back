@@ -54,6 +54,12 @@
 
 **Цель:** заметки автоматически индексируются в Vectorize при CRUD; Cmd+K и «Похожие» работают через gateway.
 
+> **⚠️ Setup-prerequisite (одноразово, обнаружено по факту в smoke 5B-3):** перед началом 5B нужно создать metadata-index на поле `userId` в Vectorize:
+> ```powershell
+> wrangler vectorize create-metadata-index notetaker-vectors --property-name=userId --type=string
+> ```
+> Без этого `filter: { userId }` в `VECTORIZE.query` / `queryById` возвращает пустой результат, даже если namespace совпадает. Cloudflare-конвенция: для уже записанных векторов индекс пополняется только при следующем upsert. На проде шаг повторяется на production-индексе (Phase 9).
+
 **Новые эндпоинты в ai (internal, без публичного route — gateway проксирует):**
 
 Все эндпоинты ниже принимают `x-user-id` через заголовок (см. решение 6). Body — только доменные данные.

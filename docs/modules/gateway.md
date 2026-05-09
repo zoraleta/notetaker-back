@@ -32,25 +32,32 @@
 
 **Защищённые роуты (`src/routes/notes.routes.ts`):**
 - `POST /notes`, `GET /notes`, `GET /notes/:id`, `PATCH /notes/:id`, `DELETE /notes/:id` → proxy → `notetaker-notes` (тот же путь). Префикс совпадает, поэтому `proxyToService` вызывается без `internalPath` и URL сохраняется как есть. `x-user-id` берётся из `c.get('user').id` (поставлен JWT-middleware).
+- `GET /notes/:id/similar` — особый случай: путь под `/notes/`, но эндпоинт принадлежит AI (F8 «Похожие заметки»). Прокси идёт в `notetaker-ai`, не в `notetaker-notes`. **Регистрация ДО `/:id`** в `Hono` (first-match): без правильного порядка `/:id` поглотит `/:id/similar`.
 
-Тело запроса валидируется в целевых internal-воркерах, gateway его не парсит и не дублирует Zod-схемы.
+**AI-роуты (`src/routes/ai.routes.ts`, Phase 5B):**
+- `POST /ai/search` — proxy → `notetaker-ai` `/search` (с `internalPath: '/search'`, потому что `/ai/` — gateway-неймспейс, ai-воркер слушает без него).
+
+Тело запроса валидируется в целевых internal-воркерах, gateway его не парсит и не дублирует Zod-схемы. Стримы через SVC binding передаются «как есть» — `proxyToService` возвращает `target.fetch(...)` напрямую, без `.json()`/`.text()`, поэтому `text/event-stream` (Phase 5D summarize, 5G discuss) пройдут без буферизации.
 
 ## Зависимости
 - **Service Binding `AUTH`** (`Fetcher`) → воркер `notetaker-auth`.
 - **Service Binding `NOTES`** (`Fetcher`) → воркер `notetaker-notes`.
+- **Service Binding `AI`** (`Fetcher`) → воркер `notetaker-ai` (Phase 5B).
 - **`env.JWT_SECRET`** → секрет, должен совпадать со значением в `notetaker-auth` (auth подписывает, gateway проверяет). Локально — `api-gateway/.dev.vars`, в проде — `wrangler secret put JWT_SECRET`.
 - **Внешние пакеты:** `hono`, `@hono/zod-validator`, `zod`, `@tsndr/cloudflare-worker-jwt`.
 
-`DB`, `env.AI`, `env.VECTORIZE` — не привязаны и **не должны** быть привязаны к этому воркеру.
+`DB`, `env.AI: Ai`, `env.VECTORIZE` — не привязаны и **не должны** быть привязаны к этому воркеру (`AI` здесь — `Fetcher`, Service Binding на ai-воркер, а не Workers AI binding).
 
-В Phase 5–7 сюда добавятся Service Bindings: `AI`, `PARSER`, `PROJECTS`.
+В Phase 6–7 сюда добавятся Service Bindings: `PARSER`, `PROJECTS`.
 
 ## Routes (публичные)
 - `POST /auth/register` — JSON `{ email, password }`. Валидируется и обрабатывается в `notetaker-auth`. Ответ: `201 { token, user: { id, email } }` или `400 { error, code: 'VALIDATION' }`.
 - `POST /auth/login` — то же тело. Ответ: `200 { token, user }` или `401 { error, code: 'UNAUTHORIZED' }`.
 - `POST/GET/GET/:id/PATCH/:id/DELETE/:id` под `/notes` — F2 CRUD заметок. Защищены JWT-middleware. Контракт описан в `docs/modules/notes.md`.
+- `GET /notes/:id/similar` — F8 «Похожие заметки», прокси в `notetaker-ai`. Контракт в `docs/modules/ai.md`.
+- `POST /ai/search` — F8 семантический поиск, прокси в `notetaker-ai`. Контракт в `docs/modules/ai.md`.
 
-Все остальные публичные роуты появятся в Phase 5–7 (`/ai/*`, `/projects/*`, `/links/*`, `/settings/*`).
+Остальные публичные роуты появятся в Phase 5C-G и 6-7 (`/ai/summarize`, `/ai/classify`, `/ai/discuss`, `/ai/pack-into-project`, `/ai/develop-suggestions`, `/settings/*`, `/projects/*`, `/links/*`).
 
 ## Internal endpoints / RPC
 Не имеет — gateway сам ни с кем не говорит как сервер для других воркеров. Только клиент Service Bindings.
