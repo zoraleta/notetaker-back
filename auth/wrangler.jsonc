@@ -1,0 +1,34 @@
+/**
+ * Internal-воркер `auth` (F6: регистрация и логин с JWT).
+ *
+ * - Без публичного `routes` — все запросы только через `notetaker-api-gateway`
+ *   (Service Binding появится в Phase 3).
+ * - `JWT_SECRET` — секрет: задаётся через `wrangler secret put JWT_SECRET`
+ *   для прода и через `.dev.vars` для локали (см. `secrets.local.md`).
+ *
+ * Полный список правил — `notetaker-back/CLAUDE.md`.
+ */
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "notetaker-auth",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-05-09",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"observability": {
+		"enabled": true
+	},
+	"upload_source_maps": true,
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "notetaker",
+			"database_id": "86ba93ac-dfd9-4820-88a6-d6b970828a0d",
+			"migrations_dir": "drizzle"
+		}
+	],
+	"dev": {
+		"port": 8788
+	}
+}
