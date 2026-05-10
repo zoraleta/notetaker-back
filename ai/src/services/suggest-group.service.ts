@@ -50,17 +50,26 @@ export async function suggestGroups(
 // активной (не удалённой) заметки. Использует raw D1 — groups/notes не
 // входят в Drizzle-схему ai-воркера, добавлять их только ради этого запроса
 // было бы over-engineering.
+//
+// Soft-fail: если запрос упал (дрейф schema, опечатка в названии колонки,
+// недоступная D1) — возвращаем пустой массив. Подсказка «пустые группы» —
+// nice-to-have, не должна ронять основную AI-фичу подсказки по смыслу.
 async function fetchEmptyGroupIds(db: D1Database, userId: string): Promise<string[]> {
-	const result = await db
-		.prepare(
-			`SELECT g.id FROM groups g
-       WHERE g.user_id = ?
-         AND NOT EXISTS (
-           SELECT 1 FROM notes n
-           WHERE n.user_id = ? AND n.group_id = g.id AND n.deleted_at IS NULL
-         )`,
-		)
-		.bind(userId, userId)
-		.all<{ id: string }>()
-	return result.results.map((r) => r.id)
+	try {
+		const result = await db
+			.prepare(
+				`SELECT g.id FROM groups g
+         WHERE g.user_id = ?1
+           AND NOT EXISTS (
+             SELECT 1 FROM notes n
+             WHERE n.user_id = ?1 AND n.group_id = g.id AND n.deleted_at IS NULL
+           )`,
+			)
+			.bind(userId)
+			.all<{ id: string }>()
+		return result.results.map((r) => r.id)
+	} catch (error) {
+		console.error('fetchEmptyGroupIds failed', error)
+		return []
+	}
 }
