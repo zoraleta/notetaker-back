@@ -7,6 +7,7 @@ import { aiRoutes } from './routes/ai.routes'
 import { authRoutes } from './routes/auth.routes'
 import { linksRoutes } from './routes/links.routes'
 import { notesRoutes } from './routes/notes.routes'
+import { projectsRoutes } from './routes/projects.routes'
 import { settingsRoutes } from './routes/settings.routes'
 
 // Public воркер `notetaker-api-gateway`. Единственная точка входа для фронта:
@@ -34,6 +35,7 @@ app.route('/notes', notesRoutes)
 app.route('/ai', aiRoutes)
 app.route('/settings', settingsRoutes)
 app.route('/links', linksRoutes)
+app.route('/projects', projectsRoutes)
 
 // Централизованный обработчик непредвиденных ошибок (CLAUDE.md → правило 5).
 // Ожидаемые ошибки приходят как Result<T> из internal-воркеров и проксируются

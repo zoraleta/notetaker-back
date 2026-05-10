@@ -38,6 +38,10 @@
 		{
 			"binding": "PARSER",
 			"service": "notetaker-parser"
+		},
+		{
+			"binding": "PROJECTS",
+			"service": "notetaker-projects"
 		}
 	],
 	"dev": {

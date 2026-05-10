@@ -1,9 +1,11 @@
 import type { Env } from '../config/env'
 import {
+	batchLinkProject,
 	findNoteById,
 	insertNote,
 	listNotesByUser,
 	softDeleteNote,
+	unlinkProjectFromNotes,
 	updateNoteFields,
 	type ListNotesFilters,
 } from '../db/notes.queries'
@@ -118,4 +120,25 @@ function upsertActionFor(note: Note): IndexAction {
 		contentText: note.contentText,
 		projectId: note.projectId,
 	}
+}
+
+// Вызывается projects-воркером через Service Binding при from-pack.
+export async function linkNotesToProject(
+	env: Env,
+	userId: string,
+	noteIds: string[],
+	projectId: string,
+): Promise<Result<void>> {
+	await batchLinkProject(env.DB, userId, noteIds, projectId)
+	return ok(undefined)
+}
+
+// Вызывается projects-воркером через Service Binding при удалении проекта.
+export async function unlinkNotesFromProject(
+	env: Env,
+	userId: string,
+	projectId: string,
+): Promise<Result<void>> {
+	await unlinkProjectFromNotes(env.DB, userId, projectId)
+	return ok(undefined)
 }

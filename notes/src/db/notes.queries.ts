@@ -1,5 +1,5 @@
 import { drizzle } from 'drizzle-orm/d1'
-import { and, desc, eq, isNull, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
 import { notes, type NewNote, type Note } from './schema'
 
 export interface ListNotesFilters {
@@ -74,4 +74,32 @@ export async function softDeleteNote(db: D1Database, id: string, deletedAt: Date
 		.update(notes)
 		.set({ deletedAt, updatedAt: deletedAt })
 		.where(eq(notes.id, id))
+}
+
+// Привязывает конкретные заметки пользователя к проекту.
+// Фильтр по userId исключает случайную запись чужих заметок.
+export async function batchLinkProject(
+	db: D1Database,
+	userId: string,
+	noteIds: string[],
+	projectId: string,
+): Promise<void> {
+	if (noteIds.length === 0) return
+	await drizzle(db)
+		.update(notes)
+		.set({ projectId, updatedAt: new Date() })
+		.where(and(eq(notes.userId, userId), inArray(notes.id, noteIds), isNull(notes.deletedAt)))
+}
+
+// Обнуляет projectId у всех живых заметок пользователя с данным projectId.
+// Вызывается projects-воркером при удалении проекта.
+export async function unlinkProjectFromNotes(
+	db: D1Database,
+	userId: string,
+	projectId: string,
+): Promise<void> {
+	await drizzle(db)
+		.update(notes)
+		.set({ projectId: null, updatedAt: new Date() })
+		.where(and(eq(notes.userId, userId), eq(notes.projectId, projectId), isNull(notes.deletedAt)))
 }
