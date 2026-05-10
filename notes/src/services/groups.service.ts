@@ -30,11 +30,15 @@ export interface ListGroupsResult {
 export interface CreateGroupInput {
 	name: string
 	description?: string
+	icon?: string
+	color?: string
 }
 
 export interface UpdateGroupInput {
 	name?: string
 	description?: string
+	icon?: string
+	color?: string
 }
 
 // Возвращает группы пользователя. Если групп ещё нет — сидирует дефолтные
@@ -54,6 +58,8 @@ export async function listGroups(env: Env, userId: string): Promise<Result<ListG
 			userId,
 			name: def.name,
 			description: def.description,
+			icon: def.icon,
+			color: def.color,
 			isDefault: true,
 			createdAt: now,
 			updatedAt: now,
@@ -82,6 +88,8 @@ export async function createGroup(
 		userId,
 		name: input.name,
 		description: input.description ?? '',
+		icon: input.icon ?? 'FileText',
+		color: input.color ?? '#64748b',
 		isDefault: false,
 		createdAt: now,
 		updatedAt: now,
@@ -98,7 +106,13 @@ export async function updateGroup(
 	const authResult = await authoriseGroup(env, id, userId)
 	if (!authResult.ok) return authResult
 
-	const updated = await updateGroupFields(env.DB, id, { ...input, updatedAt: new Date() })
+	const updated = await updateGroupFields(env.DB, id, {
+		name: input.name,
+		description: input.description,
+		icon: input.icon,
+		color: input.color,
+		updatedAt: new Date(),
+	})
 	return ok({ group: updated, index: upsertActionFor(updated) })
 }
 

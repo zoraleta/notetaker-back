@@ -10,15 +10,22 @@ import { createGroup, deleteGroup, listGroups, updateGroup } from '../services/g
 const MAX_NAME = 100
 const MAX_DESC = 500
 
+const MAX_ICON = 50
+const MAX_COLOR = 20
+
 const createSchema = z.object({
 	name: z.string().min(1).max(MAX_NAME),
 	description: z.string().max(MAX_DESC).optional(),
+	icon: z.string().min(1).max(MAX_ICON).optional(),
+	color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
 })
 
 const updateSchema = z
 	.object({
 		name: z.string().min(1).max(MAX_NAME).optional(),
 		description: z.string().max(MAX_DESC).optional(),
+		icon: z.string().min(1).max(MAX_ICON).optional(),
+		color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
 	})
 	.refine((data) => Object.values(data).some((v) => v !== undefined), {
 		message: 'Нужно передать хотя бы одно поле для обновления',

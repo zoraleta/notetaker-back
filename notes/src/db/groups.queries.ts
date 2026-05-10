@@ -31,6 +31,8 @@ export async function countGroupsByUser(db: D1Database, userId: string): Promise
 export interface GroupPatch {
 	name?: string
 	description?: string
+	icon?: string
+	color?: string
 	updatedAt: Date
 }
 
@@ -38,6 +40,8 @@ export async function updateGroupFields(db: D1Database, id: string, patch: Group
 	const set: Partial<NewGroup> = { updatedAt: patch.updatedAt }
 	if (patch.name !== undefined) set.name = patch.name
 	if (patch.description !== undefined) set.description = patch.description
+	if (patch.icon !== undefined) set.icon = patch.icon
+	if (patch.color !== undefined) set.color = patch.color
 	const rows = await drizzle(db).update(groups).set(set).where(eq(groups.id, id)).returning()
 	return rows[0]!
 }

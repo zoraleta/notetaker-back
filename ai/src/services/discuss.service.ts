@@ -50,6 +50,7 @@ export async function streamDiscuss(
 	])
 
 	const messages: LlmMessage[] = [{ role: 'system', content: systemPrompt }]
+	messages.push({ role: 'system', content: `Текущая заметка:\n${ownText}` })
 	if (ragTexts.length > 0) {
 		messages.push({ role: 'system', content: buildRagBlock(ragTexts) })
 	}

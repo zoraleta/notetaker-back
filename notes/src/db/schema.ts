@@ -7,6 +7,8 @@ export const groups = sqliteTable(
 		userId: text('user_id').notNull(),
 		name: text('name').notNull(),
 		description: text('description').notNull().default(''),
+		icon: text('icon').notNull().default('FileText'),
+		color: text('color').notNull().default('#64748b'),
 		isDefault: integer('is_default', { mode: 'boolean' }).notNull().default(false),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
 		updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
