@@ -5,6 +5,7 @@ import { corsMiddleware } from './middleware/cors.middleware'
 import { jwtMiddleware } from './middleware/jwt.middleware'
 import { aiRoutes } from './routes/ai.routes'
 import { authRoutes } from './routes/auth.routes'
+import { groupsRoutes } from './routes/groups.routes'
 import { linksRoutes } from './routes/links.routes'
 import { notesRoutes } from './routes/notes.routes'
 import { projectsRoutes } from './routes/projects.routes'
@@ -28,6 +29,7 @@ app.use('/notes/*', jwtMiddleware)
 app.use('/ai/*', jwtMiddleware)
 app.use('/projects/*', jwtMiddleware)
 app.use('/links/*', jwtMiddleware)
+app.use('/groups/*', jwtMiddleware)
 app.use('/settings/*', jwtMiddleware)
 
 // Защищённые роуты — после JWT-middleware.
@@ -35,6 +37,7 @@ app.route('/notes', notesRoutes)
 app.route('/ai', aiRoutes)
 app.route('/settings', settingsRoutes)
 app.route('/links', linksRoutes)
+app.route('/groups', groupsRoutes)
 app.route('/projects', projectsRoutes)
 
 // Централизованный обработчик непредвиденных ошибок (CLAUDE.md → правило 5).

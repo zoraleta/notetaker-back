@@ -8,6 +8,13 @@
       "when": 1778352458135,
       "tag": "0000_flat_liz_osborn",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1778437454400,
+      "tag": "0001_bumpy_hedge_knight",
+      "breakpoints": true
     }
   ]
 }

@@ -17,6 +17,7 @@ export interface CreateNoteInput {
 	contentJson: unknown
 	contentText: string
 	projectId?: string | null
+	groupId?: string | null
 	tags?: string[]
 }
 
@@ -25,6 +26,7 @@ export interface UpdateNoteInput {
 	contentJson?: unknown
 	contentText?: string
 	projectId?: string | null
+	groupId?: string | null
 	tags?: string[]
 }
 
@@ -58,6 +60,7 @@ export async function createNote(env: Env, userId: string, input: CreateNoteInpu
 		contentJson: input.contentJson,
 		contentText: input.contentText,
 		projectId: input.projectId ?? null,
+		groupId: input.groupId ?? null,
 		tags: input.tags ?? [],
 		createdAt: now,
 		updatedAt: now,

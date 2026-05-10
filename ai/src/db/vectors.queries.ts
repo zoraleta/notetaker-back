@@ -18,9 +18,11 @@
 //   null. На стороне service '' трактуем как «без проекта».
 
 const NOTE_ID_PREFIX = 'note:'
+const GROUP_ID_PREFIX = 'group:'
 export const NO_PROJECT = ''
 
 export const vectorIdForNote = (noteId: string): string => `${NOTE_ID_PREFIX}${noteId}`
+export const vectorIdForGroup = (groupId: string): string => `${GROUP_ID_PREFIX}${groupId}`
 
 // Декларативный «контракт» на форму metadata, которую кладём в Vectorize.
 // Отдельный тип удобен в search.service для типизированного приведения
@@ -31,6 +33,58 @@ export interface NoteVectorMetadata {
 	projectId: string // '' если заметка не привязана к проекту
 	type: 'note'
 	updatedAt: number
+}
+
+export interface GroupVectorMetadata {
+	userId: string
+	groupId: string
+	type: 'group'
+	updatedAt: number
+}
+
+export interface UpsertGroupVectorArgs {
+	groupId: string
+	userId: string
+	values: number[]
+}
+
+export async function upsertGroupVector(index: Vectorize, args: UpsertGroupVectorArgs): Promise<void> {
+	const metadata: Record<string, VectorizeVectorMetadata> = {
+		userId: args.userId,
+		groupId: args.groupId,
+		type: 'group',
+		updatedAt: Date.now(),
+	}
+	await index.upsert([
+		{
+			id: vectorIdForGroup(args.groupId),
+			namespace: args.userId,
+			values: args.values,
+			metadata,
+		},
+	])
+}
+
+export async function deleteGroupVectorById(index: Vectorize, groupId: string): Promise<void> {
+	await index.deleteByIds([vectorIdForGroup(groupId)])
+}
+
+export interface GroupQueryOptions {
+	userId: string
+	topK: number
+}
+
+export async function queryGroupVectors(
+	index: Vectorize,
+	values: number[],
+	options: GroupQueryOptions,
+): Promise<VectorizeMatches> {
+	return index.query(values, {
+		namespace: options.userId,
+		topK: options.topK,
+		filter: { userId: options.userId, type: 'group' },
+		returnMetadata: 'all',
+	})
 }
 
 export interface UpsertNoteVectorArgs {
@@ -80,7 +134,7 @@ export async function queryNoteVectors(
 	return index.query(values, {
 		namespace: options.userId,
 		topK: options.topK,
-		filter: { userId: options.userId },
+		filter: { userId: options.userId, type: 'note' },
 		returnMetadata: 'all',
 	})
 }
@@ -96,7 +150,7 @@ export async function queryNoteVectorsById(
 	return index.queryById(vectorIdForNote(noteId), {
 		namespace: options.userId,
 		topK: options.topK,
-		filter: { userId: options.userId },
+		filter: { userId: options.userId, type: 'note' },
 		returnMetadata: 'all',
 	})
 }

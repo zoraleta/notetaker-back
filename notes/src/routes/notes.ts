@@ -35,6 +35,7 @@ const createSchema = z.object({
 	contentJson: contentJsonSchema,
 	contentText: z.string().max(MAX_TEXT),
 	projectId: z.string().min(1).nullable().optional(),
+	groupId: z.uuid().nullable().optional(),
 	tags: tagsSchema.optional(),
 })
 
@@ -46,6 +47,7 @@ const updateSchema = z
 		contentJson: contentJsonSchema.optional(),
 		contentText: z.string().max(MAX_TEXT).optional(),
 		projectId: z.string().min(1).nullable().optional(),
+		groupId: z.uuid().nullable().optional(),
 		tags: tagsSchema.optional(),
 	})
 	.refine((data) => Object.values(data).some((value) => value !== undefined), {
@@ -54,6 +56,7 @@ const updateSchema = z
 
 const listQuerySchema = z.object({
 	projectId: z.string().min(1).optional(),
+	groupId: z.uuid().optional(),
 	tag: z.string().min(1).max(MAX_TAG_LENGTH).optional(),
 })
 

@@ -4,6 +4,7 @@ import { notes, type NewNote, type Note } from './schema'
 
 export interface ListNotesFilters {
 	projectId?: string
+	groupId?: string
 	tag?: string
 }
 
@@ -32,6 +33,10 @@ export async function listNotesByUser(
 		conditions.push(eq(notes.projectId, filters.projectId))
 	}
 
+	if (filters.groupId !== undefined) {
+		conditions.push(eq(notes.groupId, filters.groupId))
+	}
+
 	// Фильтр по тегу через json_each: разворачивает JSON-массив tags
 	// в виртуальные строки и матчит точное значение. Корректнее, чем LIKE
 	// по сериализованному тексту (никаких false-positive по подстроке).
@@ -51,6 +56,7 @@ export interface NotePatch {
 	contentJson?: unknown
 	contentText?: string
 	projectId?: string | null
+	groupId?: string | null
 	tags?: string[]
 	updatedAt: Date
 }
@@ -63,6 +69,7 @@ export async function updateNoteFields(db: D1Database, id: string, patch: NotePa
 	if (patch.contentJson !== undefined) set.contentJson = patch.contentJson
 	if (patch.contentText !== undefined) set.contentText = patch.contentText
 	if (patch.projectId !== undefined) set.projectId = patch.projectId
+	if (patch.groupId !== undefined) set.groupId = patch.groupId
 	if (patch.tags !== undefined) set.tags = patch.tags
 
 	const rows = await drizzle(db).update(notes).set(set).where(eq(notes.id, id)).returning()

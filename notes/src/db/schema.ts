@@ -1,5 +1,22 @@
 import { sqliteTable, text, integer, index } from 'drizzle-orm/sqlite-core'
 
+export const groups = sqliteTable(
+	'groups',
+	{
+		id: text('id').primaryKey(),
+		userId: text('user_id').notNull(),
+		name: text('name').notNull(),
+		description: text('description').notNull().default(''),
+		isDefault: integer('is_default', { mode: 'boolean' }).notNull().default(false),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+		updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+	},
+	(table) => [index('groups_user_id_idx').on(table.userId)],
+)
+
+export type Group = typeof groups.$inferSelect
+export type NewGroup = typeof groups.$inferInsert
+
 // Таблица заметок. Все запросы фильтруются по user_id — индекс по нему
 // обязателен. Soft-delete через deletedAt (не null = удалена); реальные
 // строки в БД остаются, чтобы оставалась возможность восстановления.
@@ -24,6 +41,7 @@ export const notes = sqliteTable(
 		contentJson: text('content_json', { mode: 'json' }).$type<unknown>().notNull(),
 		contentText: text('content_text').notNull(),
 		projectId: text('project_id'),
+		groupId: text('group_id'),
 		tags: text('tags', { mode: 'json' }).$type<string[]>().notNull().default([] as never),
 		isIndexedAt: integer('is_indexed_at', { mode: 'timestamp_ms' }),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),

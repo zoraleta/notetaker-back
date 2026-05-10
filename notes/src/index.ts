@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import type { AppBindings } from './config/env'
+import { groupsRoutes } from './routes/groups'
 import { notesRoutes } from './routes/notes'
 
 // Internal-воркер `notetaker-notes` (F2 backend). Доступен только через
@@ -13,6 +14,7 @@ import { notesRoutes } from './routes/notes'
 const app = new Hono<AppBindings>()
 
 app.route('/', notesRoutes)
+app.route('/', groupsRoutes)
 
 app.onError((error, c) => {
 	if (error instanceof HTTPException) {
