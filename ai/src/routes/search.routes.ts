@@ -3,7 +3,7 @@ import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import type { AppBindings } from '../config/env'
 import { requireUserId } from '../lib/user-context'
-import { validationHook } from '../lib/http'
+import { toResponse, validationHook } from '../lib/http'
 import { findSimilarToNote, searchByQuery } from '../services/search.service'
 
 // Семантический поиск (F8). Префикс в ai = префикс в gateway:
@@ -46,7 +46,7 @@ export const searchRoutes = new Hono<AppBindings>()
 		async (c) => {
 			const { id } = c.req.valid('param')
 			const { topK } = c.req.valid('query')
-			const hits = await findSimilarToNote(c.env, c.get('userId'), id, topK ?? DEFAULT_SIMILAR_TOPK)
-			return c.json(hits, 200)
+			const result = await findSimilarToNote(c.env, c.get('userId'), id, topK ?? DEFAULT_SIMILAR_TOPK)
+			return toResponse(c, result, 200)
 		},
 	)

@@ -1,5 +1,7 @@
 import type { Env } from '../config/env'
 import { embedText } from './embedding.service'
+import { fetchNoteContentText } from '../db/notes.client'
+import { err, ok, type Result } from '../lib/result'
 import {
 	NO_PROJECT,
 	queryNoteVectors,
@@ -34,24 +36,35 @@ export async function searchByQuery(
 // заметка-источник всегда в топе с score=1.0 (тот же вектор), её исключаем.
 // Берём `topK + 1` из Vectorize, чтобы после выкидывания self остался топ-K.
 //
+// Cross-user guard: до запроса в Vectorize проверяем, что noteId принадлежит
+// юзеру (через SVC binding к notes под x-user-id). Без этого `queryById`
+// находит чужой вектор по глобальному id и возвращает соседей из namespace
+// текущего юзера — это не утечка контента, но раскрывает сам факт
+// существования id в чужом namespace и нарушает контракт «404 на чужой».
+//
 // Если у заметки нет вектора (только что создана, индексация в фоне) —
-// `queryById` отдаёт пустой `matches`, и мы возвращаем `[]` без падения.
+// `queryById` отдаёт пустой `matches`, возвращаем `ok([])` без падения.
 export async function findSimilarToNote(
 	env: Env,
 	userId: string,
 	noteId: string,
 	topK: number,
-): Promise<SearchHit[]> {
+): Promise<Result<SearchHit[]>> {
+	const exists = await fetchNoteContentText(env, userId, noteId)
+	if (exists === null) {
+		return err('Заметка не найдена', 'NOT_FOUND')
+	}
 	const result = await queryNoteVectorsById(env.VECTORIZE, noteId, {
 		userId,
 		topK: topK + 1,
 	})
 	const selfId = vectorIdForNote(noteId)
-	return result.matches
+	const hits = result.matches
 		.filter((match) => match.id !== selfId)
 		.slice(0, topK)
 		.map(toSearchHit)
 		.filter((hit): hit is SearchHit => hit !== null)
+	return ok(hits)
 }
 
 // Приведение match → SearchHit. Защитная проверка: если metadata пуста

@@ -30,7 +30,7 @@ Embedding-модель — отдельная константа (`EMBEDDING_MOD
 
 **Поиск:**
 - `POST /search`: эмбеддит `query`, `VECTORIZE.query(values, { namespace, topK, filter, returnMetadata: 'all' })`. Возвращает `[{ noteId, score, projectId }]` отсортированно по убыванию score.
-- `GET /notes/:id/similar`: `VECTORIZE.queryById('note:'+id, { topK: topK+1, ... })`, отбрасывает self (тот же id), возвращает топ-N. Если у заметки ещё нет вектора (только что создана, индексация в фоне) — `200 []` без ошибки.
+- `GET /notes/:id/similar`: до запроса в Vectorize дёргает `GET /notes/:id` через SVC binding `NOTES` под `x-user-id` — если notes возвращает 404/403, наружу уходит `404 NOT_FOUND`. Без этой проверки `queryById` находит чужой вектор по глобальному id и возвращает соседей из своего namespace (не утечка контента, но раскрывает существование id у другого юзера). Затем `VECTORIZE.queryById('note:'+id, { topK: topK+1, ... })`, отбрасывает self, возвращает топ-N. Если у заметки ещё нет вектора (только что создана, индексация в фоне) — `200 []`.
 
 **Latency:** Workers AI embedding ~300-800ms; Vectorize upsert/query ~100-300ms; полное распространение upsert по индексу — несколько секунд (eventual consistency). Свежесозданная заметка появляется в `/search` через 5-15 сек.
 
@@ -134,7 +134,7 @@ RAG-классификация заметки по соседям в Vectorize: 
 - k из N соседей падают на `GET /notes/:id` (soft-delete между `queryById` и `fetch`, или notes-воркер недоступен) → `fetchNoteContentText` вернёт `null` для проблемных id → `filter` отбросит null'ы → RAG из (N-k) удачных.
 - Все N соседей упали → RAG = `[]` → ответ без контекста.
 
-Cross-user изоляция работает «бесплатно»: namespace=userId в `queryById` означает, что Bob с Alice'ин `noteId` получает пустой `matches` (вектор не лежит в Bob'овом namespace) → RAG=[] → стрим без leak'а Alice'иных данных. Дополнительный 403/404 от notes для якорной заметки не делаем — namespace-guard достаточен, лишний SVC-вызов на каждый `/discuss` не нужен.
+Cross-user guard: до запроса к LLM `streamDiscuss` дёргает `GET /notes/:id` через SVC binding `NOTES` под `x-user-id`. Если notes отвечает 404/403, наружу уходит `404 NOT_FOUND` ещё до запуска RAG/стрима. Это +1 SVC-вызов на каждый `/discuss`, но он внутри runtime'а (миллисекунды) и закрывает требование DoD «Bob с Alice'ин `noteId` → 404»: без проверки стрим бы пошёл с пустым RAG (utility, не утечка контента, но нарушает контракт).
 
 **Empirical scores** (DoD smoke на 6 alice TS-заметках):
 - Полный RAG (5 соседей) → `prompt_tokens=403`, ответ перечисляет всё из RAG (discriminated unions, const assertions, type narrowing/guards, extends, utility types Pick/Omit/Partial).
@@ -173,7 +173,7 @@ Cross-user изоляция работает «бесплатно»: namespace=u
 
 **Реализовано (Phase 5B):**
 - `POST /ai/search` — body `{ query: string(1..2000), topK?: number(1..50, default 10) }` → `200 [{ noteId, score, projectId: string|null }]`. Семантический поиск по эмбеддингу запроса в namespace юзера.
-- `GET /notes/:id/similar` — query `?topK=N(default 5)` → `200 [{ noteId, score, projectId }]`. Похожие заметки по эмбеддингу указанной заметки (self исключён). `200 []`, если у заметки ещё нет вектора. **gateway регистрирует этот роут ДО `/notes/:id`** (Hono first-match), чтобы `/:id` не поглотил `/:id/similar`.
+- `GET /notes/:id/similar` — query `?topK=N(default 5)` → `200 [{ noteId, score, projectId }]`. Похожие заметки по эмбеддингу указанной заметки (self исключён). `200 []`, если у заметки ещё нет вектора. **`404 NOT_FOUND`, если заметка не принадлежит юзеру или не существует** (cross-user guard через SVC binding `NOTES` под `x-user-id`). **gateway регистрирует этот роут ДО `/notes/:id`** (Hono first-match), чтобы `/:id` не поглотил `/:id/similar`.
 
 **Реализовано (Phase 5C):**
 - `GET /settings` → `200 SettingsView` (см. секцию «Settings F7» выше). Без тела.
@@ -214,11 +214,11 @@ Internal-эндпоинты **не проксируются через gateway**
 - `upsertNote(env, { noteId, userId, contentText, projectId }) → void` *(5B)* — `embedText` → `db/upsertNoteVector`.
 - `deleteNote(env, noteId) → void` *(5B)* — `db/deleteNoteVectorById`.
 - `searchByQuery(env, userId, query, topK) → SearchHit[]` *(5B)* — `embedText` → `queryNoteVectors` → маппинг через `toSearchHit` (NO_PROJECT → null).
-- `findSimilarToNote(env, userId, noteId, topK) → SearchHit[]` *(5B)* — `queryNoteVectorsById` с `topK+1`, выкидывает self, мапит. `[]`, если вектора нет.
+- `findSimilarToNote(env, userId, noteId, topK) → Result<SearchHit[]>` *(5B)* — early-проверка через `fetchNoteContentText` (notes-воркер вернул `null` → `Result.err('NOT_FOUND')`). Затем `queryNoteVectorsById` с `topK+1`, выкидывает self, мапит. `ok([])`, если вектора нет.
 - `streamSummarize(env, text) → ReadableStream` *(5D)* — параллельно достаёт `getActiveModel` и `getPrompt('summarize')`, зовёт `env.AI.run(model, { messages, stream: true })`, отдаёт сырой SSE-поток без обёртки.
 - `classifyNote(env, userId, contentText) → ClassifyResult` *(5E)* — embed → `queryNoteVectors(topK=20)` → per-neighbor min-score filter (0.45) → sum по projectId (NO_PROJECT исключён) → max-sum > 0.75 → suggestion / null.
 - `findDevelopCandidates(env, userId) → DevelopCandidate[]` *(5F)* — `env.NOTES.fetch('GET /notes')` → filter длина < 600 → top-20 свежих → `queryNoteVectorsById` для каждого с фильтром score > 0.65 → group-by projectId → top-1 на тему → top-3 по числу соседей. Soft-fail на падении notes (возвращает `[]`).
-- `streamDiscuss(env, userId, noteId, messages) → ReadableStream` *(5G)* — параллельно `Promise.all` достаёт `getActiveModel`, `getPrompt('discuss')` и RAG-контекст; собирает `messages: [system, ragBlock?, ...userMessages]`; `env.AI.run(model, { messages, stream: true })` → сырой SSE-поток.
+- `streamDiscuss(env, userId, noteId, messages) → Result<ReadableStream>` *(5G)* — early-проверка через `fetchNoteContentText` (`null` → `Result.err('NOT_FOUND')`). Затем параллельно `Promise.all` достаёт `getActiveModel`, `getPrompt('discuss')` и RAG-контекст; собирает `messages: [system, ragBlock?, ...userMessages]`; `env.AI.run(model, { messages, stream: true })` → `ok(стрим)`.
 - `gatherRagContext(env, userId, noteId) → string[]` *(5G, приватная)* — `queryNoteVectorsById(topK=6)` → self-skip → первые 5 соседних `noteId` → `Promise.all` по `fetchNoteContentText` через SVC binding `NOTES` → фильтр `null` (graceful degrade на 404/403/network-fail). Возвращает 0..5 текстов.
 - `packDialogIntoProject(env, dialog) → Result<ProjectPack>` *(5G)* — `getActiveModel` + `getPrompt('pack-into-project')` параллельно → `env.AI.run` без `stream` → `extractJsonBlock` (substring `{...}` для случаев markdown-обёртки) → `JSON.parse` → `projectPackSchema.safeParse` (Zod). Любая поломка парсинга/формы → `Result.err(..., 'EXTERNAL')` → `502`.
 

@@ -2,12 +2,14 @@ import type { Env } from '../config/env'
 import { fetchNoteContentText } from '../db/notes.client'
 import { extractNeighborMatches, queryNoteVectorsById } from '../db/vectors.queries'
 import { toReadableStream } from '../lib/ai-stream'
+import { err, ok, type Result } from '../lib/result'
 import { getActiveModel, getPrompt } from './settings.service'
 
 // F5 «обсуди идею» (Phase 5G). Стриминг чата с RAG-контекстом из соседних
 // заметок юзера. Структура: систем-промпт `discuss` → отдельный system-блок
-// с RAG-контекстом → история сообщений пользователя. RAG в отдельном блоке —
-// антипаттерн «шаблонные строки промптов с ${variables} снаружи getPrompt».
+// с RAG-контекстом → история сообщений пользователя. RAG отдаём отдельным
+// system-блоком, а не через `${variables}` в строку промпта — так промпт
+// остаётся чистым шаблоном из getPrompt без рантайм-склейки.
 //
 // Graceful degrade: если у заметки нет вектора (только что создана,
 // индексация в фоне) → отвечаем без RAG. Если k из N соседей упали при
@@ -29,7 +31,16 @@ export async function streamDiscuss(
 	userId: string,
 	noteId: string,
 	userMessages: ChatMessage[],
-): Promise<ReadableStream<Uint8Array>> {
+): Promise<Result<ReadableStream<Uint8Array>>> {
+	// Cross-user guard: до запроса к LLM проверяем, что noteId принадлежит
+	// юзеру (через SVC binding к notes под x-user-id). Без этого Bob может
+	// дёрнуть `/discuss` с чужим noteId — стрим всё равно пошёл бы (RAG
+	// просто остался бы пустым), но контракт DoD требует 404 на чужой.
+	const ownText = await fetchNoteContentText(env, userId, noteId)
+	if (ownText === null) {
+		return err('Заметка не найдена', 'NOT_FOUND')
+	}
+
 	// Параллельно: настройки + RAG. RAG-цепочка (queryById + N×GET notes)
 	// — самая медленная операция, не дожидаемся её последовательно.
 	const [model, systemPrompt, ragTexts] = await Promise.all([
@@ -46,8 +57,8 @@ export async function streamDiscuss(
 		messages.push(msg)
 	}
 
-	const result = await env.AI.run(model, { messages, stream: true })
-	return toReadableStream(result)
+	const aiResult = await env.AI.run(model, { messages, stream: true })
+	return ok(toReadableStream(aiResult))
 }
 
 async function gatherRagContext(env: Env, userId: string, noteId: string): Promise<string[]> {
