@@ -6,7 +6,7 @@ import {
 	EMBEDDING_MODEL,
 	type AllowedModel,
 } from '../config/ai-models'
-import { DEFAULT_PROMPTS, type PromptKey } from '../config/prompts'
+import { BASE_PROMPTS, DEFAULT_PROMPTS, type PromptKey } from '../config/prompts'
 import { getSetting, setSetting } from '../db/settings.queries'
 import {
 	getPromptOverride,
@@ -55,9 +55,13 @@ export async function getActiveModel(env: Env): Promise<AllowedModel> {
 // если он непустой; иначе дефолт из config/prompts.ts. Пустая строка
 // override'а трактуется как «нет override» — пользователь, вероятно, хотел
 // сбросить значение, но запрос на DELETE удобнее, чем PUT с ''.
+// Возвращает полный системный промпт для AI-вызова: скрытый base (из кода) +
+// пользовательская часть (override из D1 или дефолт). Пользователь видит
+// и редактирует только вторую часть; base не раскрывается через /settings.
 export async function getPrompt(env: Env, key: PromptKey): Promise<string> {
 	const override = await getPromptOverride(env.DB, key)
-	return resolveEffectivePrompt(key, override?.value)
+	const userPart = resolveEffectivePrompt(key, override?.value)
+	return `${BASE_PROMPTS[key]}\n\n${userPart}`
 }
 
 // Помощник для view + чтения: единая логика «trim + fallback».

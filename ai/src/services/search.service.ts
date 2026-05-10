@@ -10,15 +10,25 @@ import {
 	type NoteVectorMetadata,
 } from '../db/vectors.queries'
 
+// Минимальный cosine similarity для семантического поиска по тексту запроса.
+// Vectorize возвращает topK без нижней границы — порог отсекает нерелевантный хвост.
+const MIN_SEARCH_SCORE = 0.4
+
 // Минимальный cosine similarity для «похожих заметок». Ниже этого порога
 // результат считается нерелевантным и не возвращается фронту.
 const MIN_SIMILAR_SCORE = 0.5
 
-// Shape ответа для фронта. projectId возвращаем как `null`, если в metadata
-// у заметки лежит NO_PROJECT (`''`) — фронту удобнее однообразный
-// `if (projectId)`, чем сравнивать с пустой строкой.
+// Shape внутреннего хита до обогащения.
+interface RawSearchHit {
+	noteId: string
+	score: number
+	projectId: string | null
+}
+
+// Shape ответа для фронта — обогащённый title из notes-воркера.
 export interface SearchHit {
 	noteId: string
+	title: string
 	score: number
 	projectId: string | null
 }
@@ -40,7 +50,17 @@ export async function searchByQuery(
 ): Promise<SearchHit[]> {
 	const values = await embedText(env, query)
 	const result = await queryNoteVectors(env.VECTORIZE, values, { userId, topK })
-	return result.matches.map(toSearchHit).filter((hit): hit is SearchHit => hit !== null)
+	const raw = result.matches
+		.map(toRawSearchHit)
+		.filter((hit): hit is RawSearchHit => hit !== null && hit.score >= MIN_SEARCH_SCORE)
+	const enriched = await Promise.all(
+		raw.map(async (hit) => {
+			const summary = await fetchNoteSummary(env, userId, hit.noteId)
+			if (!summary) return null
+			return { noteId: hit.noteId, title: summary.title, score: hit.score, projectId: hit.projectId }
+		}),
+	)
+	return enriched.filter((hit): hit is SearchHit => hit !== null)
 }
 
 // «Похожие заметки»: поиск по уже существующему вектору заметки. Сама
@@ -73,8 +93,8 @@ export async function findSimilarToNote(
 	const hits = result.matches
 		.filter((match) => match.id !== selfId && match.score >= MIN_SIMILAR_SCORE)
 		.slice(0, topK)
-		.map(toSearchHit)
-		.filter((hit): hit is SearchHit => hit !== null)
+		.map(toRawSearchHit)
+		.filter((hit): hit is RawSearchHit => hit !== null)
 	// Обогащаем хиты данными заметок из notes-воркера параллельно.
 	// Soft-fail: если notes вернул null (404, 5xx), хит выкидывается.
 	const enriched = await Promise.all(
@@ -90,7 +110,7 @@ export async function findSimilarToNote(
 // Приведение match → SearchHit. Защитная проверка: если metadata пуста
 // или невалидна (вектор записан старой версией кода с другой схемой),
 // возвращаем null — наверху отфильтруется. Это страховка, а не норма.
-function toSearchHit(match: VectorizeMatch): SearchHit | null {
+function toRawSearchHit(match: VectorizeMatch): RawSearchHit | null {
 	const metadata = match.metadata as NoteVectorMetadata | undefined
 	if (!metadata || typeof metadata.noteId !== 'string') {
 		return null
