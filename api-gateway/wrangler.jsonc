@@ -34,6 +34,10 @@
 		{
 			"binding": "AI",
 			"service": "notetaker-ai"
+		},
+		{
+			"binding": "PARSER",
+			"service": "notetaker-parser"
 		}
 	],
 	"dev": {

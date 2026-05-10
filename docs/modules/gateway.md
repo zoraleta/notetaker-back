@@ -45,18 +45,22 @@
 **Settings-роуты (`src/routes/settings.routes.ts`, Phase 5C):**
 - `GET /settings`, `PUT /settings/active-model`, `PUT /settings/prompts/:key`, `DELETE /settings/prompts/:key` → proxy → `notetaker-ai` (тот же путь, без `internalPath` — префиксы совпадают). Защищены `jwtMiddleware` через `app.use('/settings/*', jwtMiddleware)`. ai-воркер сам `userId` не использует (настройки глобальные), но JWT всё равно обязателен — это guard «авторизован — может править».
 
+**Links-роуты (`src/routes/links.routes.ts`, Phase 6):**
+- `POST /links/parse` *(Phase 6)* — proxy → `notetaker-parser` `/parse` (с `internalPath: '/parse'`, потому что `/links/` — gateway-неймспейс, parser-воркер слушает без него). Body `{ url }`; ответ `{ title, byline, content, excerpt }` либо `502 EXTERNAL` при сбое источника / нечитаемой странице. Защищён `jwtMiddleware` через `app.use('/links/*', jwtMiddleware)`. По tech-plan §6.4 выбран простой прокси-вариант (не композиция parse+summarize в gateway): фронт делает два запроса — `/links/parse` за meta+content, затем `/ai/summarize` за стримом саммари (gateway остаётся тонким, CLAUDE.md → правило 1 «routes thin»).
+
 Тело запроса валидируется в целевых internal-воркерах, gateway его не парсит и не дублирует Zod-схемы. Стримы через SVC binding передаются «как есть» — `proxyToService` возвращает `target.fetch(...)` напрямую, без `.json()`/`.text()`, поэтому `text/event-stream` (Phase 5D summarize, 5G discuss) пройдут без буферизации.
 
 ## Зависимости
 - **Service Binding `AUTH`** (`Fetcher`) → воркер `notetaker-auth`.
 - **Service Binding `NOTES`** (`Fetcher`) → воркер `notetaker-notes`.
 - **Service Binding `AI`** (`Fetcher`) → воркер `notetaker-ai` (Phase 5B).
+- **Service Binding `PARSER`** (`Fetcher`) → воркер `notetaker-parser` (Phase 6).
 - **`env.JWT_SECRET`** → секрет, должен совпадать со значением в `notetaker-auth` (auth подписывает, gateway проверяет). Локально — `api-gateway/.dev.vars`, в проде — `wrangler secret put JWT_SECRET`.
 - **Внешние пакеты:** `hono`, `@hono/zod-validator`, `zod`, `@tsndr/cloudflare-worker-jwt`.
 
 `DB`, `env.AI: Ai`, `env.VECTORIZE` — не привязаны и **не должны** быть привязаны к этому воркеру (`AI` здесь — `Fetcher`, Service Binding на ai-воркер, а не Workers AI binding).
 
-В Phase 6–7 сюда добавятся Service Bindings: `PARSER`, `PROJECTS`.
+В Phase 7 сюда добавится Service Binding: `PROJECTS`.
 
 ## Routes (публичные)
 - `POST /auth/register` — JSON `{ email, password }`. Валидируется и обрабатывается в `notetaker-auth`. Ответ: `201 { token, user: { id, email } }` или `400 { error, code: 'VALIDATION' }`.
@@ -70,8 +74,9 @@
 - `POST /ai/discuss` — F5 SSE-чат «обсуди идею» с RAG-контекстом, прокси в `notetaker-ai`. Контракт в `docs/modules/ai.md`.
 - `POST /ai/pack-into-project` — F5 структурированная упаковка диалога в проект, прокси в `notetaker-ai`. Контракт в `docs/modules/ai.md`.
 - `GET /settings`, `PUT /settings/active-model`, `PUT /settings/prompts/:key`, `DELETE /settings/prompts/:key` — F7 AI-настройки, прокси в `notetaker-ai`. Контракт в `docs/modules/ai.md`.
+- `POST /links/parse` — F1 extraction статьи по URL, прокси в `notetaker-parser`. Контракт в `docs/modules/parser.md`.
 
-Остальные публичные роуты появятся в Phase 6–7 (`/projects/*`, `/links/*`).
+Остальные публичные роуты появятся в Phase 7 (`/projects/*`).
 
 ## Internal endpoints / RPC
 Не имеет — gateway сам ни с кем не говорит как сервер для других воркеров. Только клиент Service Bindings.

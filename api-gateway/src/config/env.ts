@@ -6,6 +6,7 @@ export interface Env {
 	AUTH: Fetcher
 	NOTES: Fetcher
 	AI: Fetcher
+	PARSER: Fetcher
 }
 
 export type Variables = {

@@ -1,0 +1,29 @@
+/**
+ * Internal-воркер `parser` (Phase 6, F1 extraction).
+ *
+ * - Без публичного `routes` — все запросы только через `notetaker-api-gateway`
+ *   (Service Binding `PARSER`).
+ * - JWT не валидируется здесь (CLAUDE.md → правило 11): доверяем заголовку
+ *   `x-user-id`, который ставит gateway после успешной проверки токена.
+ * - Не ходит в D1: extraction = pure transform URL → текст. Никакого
+ *   состояния не хранит.
+ *
+ * Полный список правил — `notetaker-back/CLAUDE.md`.
+ */
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "notetaker-parser",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-05-09",
+	"compatibility_flags": ["nodejs_compat"],
+	// Internal-воркер: явно отключаем публичный поддомен <name>.<account>.workers.dev,
+	// чтобы фронт не мог обратиться к нему в обход gateway (CLAUDE.md → правило 1).
+	"workers_dev": false,
+	"observability": {
+		"enabled": true
+	},
+	"upload_source_maps": true,
+	"dev": {
+		"port": 8792
+	}
+}

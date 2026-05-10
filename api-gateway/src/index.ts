@@ -5,6 +5,7 @@ import { corsMiddleware } from './middleware/cors.middleware'
 import { jwtMiddleware } from './middleware/jwt.middleware'
 import { aiRoutes } from './routes/ai.routes'
 import { authRoutes } from './routes/auth.routes'
+import { linksRoutes } from './routes/links.routes'
 import { notesRoutes } from './routes/notes.routes'
 import { settingsRoutes } from './routes/settings.routes'
 
@@ -21,7 +22,7 @@ app.use('*', corsMiddleware)
 app.route('/auth', authRoutes)
 
 // JWT-middleware вешается ровно на защищённые префиксы.
-// Phase 5–7: добавятся /ai/*, /projects/*, /links/*, /settings/*.
+// Phase 7 добавит /projects/*.
 app.use('/notes/*', jwtMiddleware)
 app.use('/ai/*', jwtMiddleware)
 app.use('/projects/*', jwtMiddleware)
@@ -32,6 +33,7 @@ app.use('/settings/*', jwtMiddleware)
 app.route('/notes', notesRoutes)
 app.route('/ai', aiRoutes)
 app.route('/settings', settingsRoutes)
+app.route('/links', linksRoutes)
 
 // Централизованный обработчик непредвиденных ошибок (CLAUDE.md → правило 5).
 // Ожидаемые ошибки приходят как Result<T> из internal-воркеров и проксируются
