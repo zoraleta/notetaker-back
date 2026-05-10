@@ -1,6 +1,6 @@
 import type { Env } from '../config/env'
 import { embedText } from './embedding.service'
-import { fetchNoteContentText } from '../db/notes.client'
+import { fetchNoteContentText, fetchNoteSummary } from '../db/notes.client'
 import { err, ok, type Result } from '../lib/result'
 import {
 	NO_PROJECT,
@@ -10,6 +10,10 @@ import {
 	type NoteVectorMetadata,
 } from '../db/vectors.queries'
 
+// Минимальный cosine similarity для «похожих заметок». Ниже этого порога
+// результат считается нерелевантным и не возвращается фронту.
+const MIN_SIMILAR_SCORE = 0.5
+
 // Shape ответа для фронта. projectId возвращаем как `null`, если в metadata
 // у заметки лежит NO_PROJECT (`''`) — фронту удобнее однообразный
 // `if (projectId)`, чем сравнивать с пустой строкой.
@@ -17,6 +21,13 @@ export interface SearchHit {
 	noteId: string
 	score: number
 	projectId: string | null
+}
+
+// Shape для «похожих заметок» — обогащённый хит с данными из notes-воркера.
+export interface SimilarNoteHit {
+	id: string
+	title: string
+	score: number
 }
 
 // Семантический поиск по тексту запроса. Эмбеддит query через bge-m3,
@@ -49,7 +60,7 @@ export async function findSimilarToNote(
 	userId: string,
 	noteId: string,
 	topK: number,
-): Promise<Result<SearchHit[]>> {
+): Promise<Result<SimilarNoteHit[]>> {
 	const exists = await fetchNoteContentText(env, userId, noteId)
 	if (exists === null) {
 		return err('Заметка не найдена', 'NOT_FOUND')
@@ -60,11 +71,20 @@ export async function findSimilarToNote(
 	})
 	const selfId = vectorIdForNote(noteId)
 	const hits = result.matches
-		.filter((match) => match.id !== selfId)
+		.filter((match) => match.id !== selfId && match.score >= MIN_SIMILAR_SCORE)
 		.slice(0, topK)
 		.map(toSearchHit)
 		.filter((hit): hit is SearchHit => hit !== null)
-	return ok(hits)
+	// Обогащаем хиты данными заметок из notes-воркера параллельно.
+	// Soft-fail: если notes вернул null (404, 5xx), хит выкидывается.
+	const enriched = await Promise.all(
+		hits.map(async (hit) => {
+			const summary = await fetchNoteSummary(env, userId, hit.noteId)
+			if (!summary) return null
+			return { id: summary.id, title: summary.title, score: hit.score }
+		}),
+	)
+	return ok(enriched.filter((h): h is SimilarNoteHit => h !== null))
 }
 
 // Приведение match → SearchHit. Защитная проверка: если metadata пуста
