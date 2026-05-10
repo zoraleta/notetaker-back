@@ -42,7 +42,6 @@ export const notes = sqliteTable(
 		title: text('title').notNull().default(''),
 		contentJson: text('content_json', { mode: 'json' }).$type<unknown>().notNull(),
 		contentText: text('content_text').notNull(),
-		projectId: text('project_id'),
 		groupId: text('group_id'),
 		tags: text('tags', { mode: 'json' }).$type<string[]>().notNull().default([] as never),
 		isIndexedAt: integer('is_indexed_at', { mode: 'timestamp_ms' }),

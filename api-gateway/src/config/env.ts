@@ -7,7 +7,6 @@ export interface Env {
 	NOTES: Fetcher
 	AI: Fetcher
 	PARSER: Fetcher
-	PROJECTS: Fetcher
 }
 
 export type Variables = {

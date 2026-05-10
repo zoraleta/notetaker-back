@@ -11,15 +11,11 @@
 //   структуру Vectorize, не через фильтр (CLAUDE.md «Векторный индекс»).
 // - filter: { userId } — дублирующий guard в дополнение к namespace
 //   на случай ошибки в namespace.
-// - returnMetadata: 'all' — нам нужны projectId/noteId/userId в ответе,
+// - returnMetadata: 'all' — нам нужны noteId/userId в ответе,
 //   чтобы service-слой мог вернуть их клиенту.
-// - projectId хранится как строка '' (а не null), потому что
-//   VectorizeVectorMetadataValue = string|number|boolean|string[] не разрешает
-//   null. На стороне service '' трактуем как «без проекта».
 
 const NOTE_ID_PREFIX = 'note:'
 const GROUP_ID_PREFIX = 'group:'
-export const NO_PROJECT = ''
 
 export const vectorIdForNote = (noteId: string): string => `${NOTE_ID_PREFIX}${noteId}`
 export const vectorIdForGroup = (groupId: string): string => `${GROUP_ID_PREFIX}${groupId}`
@@ -30,7 +26,6 @@ export const vectorIdForGroup = (groupId: string): string => `${GROUP_ID_PREFIX}
 export interface NoteVectorMetadata {
 	userId: string
 	noteId: string
-	projectId: string // '' если заметка не привязана к проекту
 	type: 'note'
 	updatedAt: number
 }
@@ -91,18 +86,12 @@ export interface UpsertNoteVectorArgs {
 	noteId: string
 	userId: string
 	values: number[]
-	projectId: string | null
 }
 
 export async function upsertNoteVector(index: Vectorize, args: UpsertNoteVectorArgs): Promise<void> {
-	// metadata типизируем как Record<string, VectorizeVectorMetadata> (требование SDK),
-	// а форма нашей записи описана отдельным типом NoteVectorMetadata —
-	// он используется при чтении в search.service для приведения после
-	// `returnMetadata: 'all'`.
 	const metadata: Record<string, VectorizeVectorMetadata> = {
 		userId: args.userId,
 		noteId: args.noteId,
-		projectId: args.projectId ?? NO_PROJECT,
 		type: 'note',
 		updatedAt: Date.now(),
 	}

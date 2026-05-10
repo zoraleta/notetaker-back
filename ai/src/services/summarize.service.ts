@@ -15,6 +15,7 @@ export async function streamSummarize(env: Env, text: string): Promise<ReadableS
 			{ role: 'user', content: text },
 		],
 		stream: true,
+		max_tokens: 512,
 	})
 	return toReadableStream(result)
 }

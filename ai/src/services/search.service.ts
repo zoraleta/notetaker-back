@@ -3,7 +3,6 @@ import { embedText } from './embedding.service'
 import { fetchNoteContentText, fetchNoteSummary } from '../db/notes.client'
 import { err, ok, type Result } from '../lib/result'
 import {
-	NO_PROJECT,
 	queryNoteVectors,
 	queryNoteVectorsById,
 	vectorIdForNote,
@@ -18,19 +17,15 @@ const MIN_SEARCH_SCORE = 0.4
 // результат считается нерелевантным и не возвращается фронту.
 const MIN_SIMILAR_SCORE = 0.5
 
-// Shape внутреннего хита до обогащения.
 interface RawSearchHit {
 	noteId: string
 	score: number
-	projectId: string | null
 }
 
-// Shape ответа для фронта — обогащённый title из notes-воркера.
 export interface SearchHit {
 	noteId: string
 	title: string
 	score: number
-	projectId: string | null
 }
 
 // Shape для «похожих заметок» — обогащённый хит с данными из notes-воркера.
@@ -57,7 +52,7 @@ export async function searchByQuery(
 		raw.map(async (hit) => {
 			const summary = await fetchNoteSummary(env, userId, hit.noteId)
 			if (!summary) return null
-			return { noteId: hit.noteId, title: summary.title, score: hit.score, projectId: hit.projectId }
+			return { noteId: hit.noteId, title: summary.title, score: hit.score }
 		}),
 	)
 	return enriched.filter((hit): hit is SearchHit => hit !== null)
@@ -115,13 +110,5 @@ function toRawSearchHit(match: VectorizeMatch): RawSearchHit | null {
 	if (!metadata || typeof metadata.noteId !== 'string') {
 		return null
 	}
-	const projectId =
-		typeof metadata.projectId === 'string' && metadata.projectId !== NO_PROJECT
-			? metadata.projectId
-			: null
-	return {
-		noteId: metadata.noteId,
-		score: match.score,
-		projectId,
-	}
+	return { noteId: metadata.noteId, score: match.score }
 }

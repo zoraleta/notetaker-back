@@ -1,11 +1,9 @@
 import type { Env } from '../config/env'
 import {
-	batchLinkProject,
 	findNoteById,
 	insertNote,
 	listNotesByUser,
 	softDeleteNote,
-	unlinkProjectFromNotes,
 	updateNoteFields,
 	type ListNotesFilters,
 } from '../db/notes.queries'
@@ -16,7 +14,6 @@ export interface CreateNoteInput {
 	title?: string
 	contentJson: unknown
 	contentText: string
-	projectId?: string | null
 	groupId?: string | null
 	tags?: string[]
 }
@@ -25,7 +22,6 @@ export interface UpdateNoteInput {
 	title?: string
 	contentJson?: unknown
 	contentText?: string
-	projectId?: string | null
 	groupId?: string | null
 	tags?: string[]
 }
@@ -36,7 +32,7 @@ export interface UpdateNoteInput {
 // Discriminated union вместо двух отдельных полей — фиксирует, что upsert
 // и delete взаимоисключающие.
 export type IndexAction =
-	| { kind: 'upsert'; userId: string; noteId: string; contentText: string; projectId: string | null }
+	| { kind: 'upsert'; userId: string; noteId: string; contentText: string }
 	| { kind: 'delete'; userId: string; noteId: string }
 
 // CRUD-операции возвращают и заметку (для ответа клиенту), и IndexAction
@@ -59,7 +55,6 @@ export async function createNote(env: Env, userId: string, input: CreateNoteInpu
 		title: input.title ?? '',
 		contentJson: input.contentJson,
 		contentText: input.contentText,
-		projectId: input.projectId ?? null,
 		groupId: input.groupId ?? null,
 		tags: input.tags ?? [],
 		createdAt: now,
@@ -121,27 +116,5 @@ function upsertActionFor(note: Note): IndexAction {
 		userId: note.userId,
 		noteId: note.id,
 		contentText: note.contentText,
-		projectId: note.projectId,
 	}
-}
-
-// Вызывается projects-воркером через Service Binding при from-pack.
-export async function linkNotesToProject(
-	env: Env,
-	userId: string,
-	noteIds: string[],
-	projectId: string,
-): Promise<Result<void>> {
-	await batchLinkProject(env.DB, userId, noteIds, projectId)
-	return ok(undefined)
-}
-
-// Вызывается projects-воркером через Service Binding при удалении проекта.
-export async function unlinkNotesFromProject(
-	env: Env,
-	userId: string,
-	projectId: string,
-): Promise<Result<void>> {
-	await unlinkProjectFromNotes(env.DB, userId, projectId)
-	return ok(undefined)
 }

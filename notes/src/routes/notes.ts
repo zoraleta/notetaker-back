@@ -9,9 +9,7 @@ import {
 	createNote,
 	deleteNote,
 	getNote,
-	linkNotesToProject,
 	listNotes,
-	unlinkNotesFromProject,
 	updateNote,
 } from '../services/notes.service'
 
@@ -34,7 +32,6 @@ const createSchema = z.object({
 	title: z.string().max(MAX_TITLE).optional(),
 	contentJson: contentJsonSchema,
 	contentText: z.string().max(MAX_TEXT),
-	projectId: z.string().min(1).nullable().optional(),
 	groupId: z.uuid().nullable().optional(),
 	tags: tagsSchema.optional(),
 })
@@ -46,7 +43,6 @@ const updateSchema = z
 		title: z.string().max(MAX_TITLE).optional(),
 		contentJson: contentJsonSchema.optional(),
 		contentText: z.string().max(MAX_TEXT).optional(),
-		projectId: z.string().min(1).nullable().optional(),
 		groupId: z.uuid().nullable().optional(),
 		tags: tagsSchema.optional(),
 	})
@@ -55,7 +51,6 @@ const updateSchema = z
 	})
 
 const listQuerySchema = z.object({
-	projectId: z.string().min(1).optional(),
 	groupId: z.uuid().optional(),
 	tag: z.string().min(1).max(MAX_TAG_LENGTH).optional(),
 })
@@ -64,33 +59,6 @@ const idParamSchema = z.object({ id: z.uuid() })
 
 export const notesRoutes = new Hono<AppBindings>()
 	.use('*', requireUserId)
-	// Внутренние эндпоинты для projects-воркера. Вызываются через Service
-	// Binding с заголовком x-user-id — requireUserId выше авторизует их
-	// так же, как и публичные маршруты.
-	.post(
-		'/internal/notes/link-project',
-		zValidator(
-			'json',
-			z.object({ noteIds: z.array(z.string().uuid()).min(1).max(100), projectId: z.string().uuid() }),
-			validationHook,
-		),
-		async (c) => {
-			const { noteIds, projectId } = c.req.valid('json')
-			const result = await linkNotesToProject(c.env, c.get('userId'), noteIds, projectId)
-			if (!result.ok) return errResponse(c, result)
-			return new Response(null, { status: 204 })
-		},
-	)
-	.post(
-		'/internal/notes/unlink-project',
-		zValidator('json', z.object({ projectId: z.string().uuid() }), validationHook),
-		async (c) => {
-			const { projectId } = c.req.valid('json')
-			const result = await unlinkNotesFromProject(c.env, c.get('userId'), projectId)
-			if (!result.ok) return errResponse(c, result)
-			return new Response(null, { status: 204 })
-		},
-	)
 	.post('/notes', zValidator('json', createSchema, validationHook), async (c) => {
 		const result = await createNote(c.env, c.get('userId'), c.req.valid('json'))
 		if (!result.ok) return errResponse(c, result)

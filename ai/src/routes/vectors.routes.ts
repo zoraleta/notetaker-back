@@ -18,7 +18,6 @@ const MAX_TEXT = 1_000_000 // ~1 МБ — синхронизировано с л
 const upsertSchema = z.object({
 	noteId: z.uuid(),
 	contentText: z.string().min(1).max(MAX_TEXT),
-	projectId: z.string().min(1).nullable(),
 })
 
 const deleteSchema = z.object({
@@ -43,7 +42,6 @@ export const vectorsRoutes = new Hono<AppBindings>()
 			noteId: body.noteId,
 			userId: c.get('userId'),
 			contentText: body.contentText,
-			projectId: body.projectId,
 		})
 		return new Response(null, { status: 204 })
 	})

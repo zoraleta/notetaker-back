@@ -23,8 +23,6 @@ import { authenticatedProxy } from '../lib/proxy'
 export const aiRoutes = new Hono<AppBindings>()
 	.post('/search', authenticatedProxy('AI', '/search'))
 	.post('/summarize', authenticatedProxy('AI', '/summarize'))
-	.post('/classify', authenticatedProxy('AI', '/classify'))
 	.get('/develop-suggestions', authenticatedProxy('AI', '/develop-suggestions'))
 	.post('/discuss', authenticatedProxy('AI', '/discuss'))
-	.post('/pack-into-project', authenticatedProxy('AI', '/pack-into-project'))
 	.post('/suggest-group', authenticatedProxy('AI', '/suggest-group'))

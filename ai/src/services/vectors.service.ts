@@ -12,7 +12,6 @@ export interface UpsertNoteVectorInput {
 	noteId: string
 	userId: string
 	contentText: string
-	projectId: string | null
 }
 
 export async function upsertNote(env: Env, input: UpsertNoteVectorInput): Promise<void> {
@@ -21,7 +20,6 @@ export async function upsertNote(env: Env, input: UpsertNoteVectorInput): Promis
 		noteId: input.noteId,
 		userId: input.userId,
 		values,
-		projectId: input.projectId,
 	})
 }
 

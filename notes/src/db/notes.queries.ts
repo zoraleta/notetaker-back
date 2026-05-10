@@ -1,9 +1,8 @@
 import { drizzle } from 'drizzle-orm/d1'
-import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
+import { and, desc, eq, isNull, sql } from 'drizzle-orm'
 import { notes, type NewNote, type Note } from './schema'
 
 export interface ListNotesFilters {
-	projectId?: string
 	groupId?: string
 	tag?: string
 }
@@ -29,10 +28,6 @@ export async function listNotesByUser(
 ): Promise<Note[]> {
 	const conditions = [eq(notes.userId, userId), isNull(notes.deletedAt)]
 
-	if (filters.projectId !== undefined) {
-		conditions.push(eq(notes.projectId, filters.projectId))
-	}
-
 	if (filters.groupId !== undefined) {
 		conditions.push(eq(notes.groupId, filters.groupId))
 	}
@@ -55,7 +50,6 @@ export interface NotePatch {
 	title?: string
 	contentJson?: unknown
 	contentText?: string
-	projectId?: string | null
 	groupId?: string | null
 	tags?: string[]
 	updatedAt: Date
@@ -68,7 +62,6 @@ export async function updateNoteFields(db: D1Database, id: string, patch: NotePa
 	if (patch.title !== undefined) set.title = patch.title
 	if (patch.contentJson !== undefined) set.contentJson = patch.contentJson
 	if (patch.contentText !== undefined) set.contentText = patch.contentText
-	if (patch.projectId !== undefined) set.projectId = patch.projectId
 	if (patch.groupId !== undefined) set.groupId = patch.groupId
 	if (patch.tags !== undefined) set.tags = patch.tags
 
@@ -83,30 +76,3 @@ export async function softDeleteNote(db: D1Database, id: string, deletedAt: Date
 		.where(eq(notes.id, id))
 }
 
-// Привязывает конкретные заметки пользователя к проекту.
-// Фильтр по userId исключает случайную запись чужих заметок.
-export async function batchLinkProject(
-	db: D1Database,
-	userId: string,
-	noteIds: string[],
-	projectId: string,
-): Promise<void> {
-	if (noteIds.length === 0) return
-	await drizzle(db)
-		.update(notes)
-		.set({ projectId, updatedAt: new Date() })
-		.where(and(eq(notes.userId, userId), inArray(notes.id, noteIds), isNull(notes.deletedAt)))
-}
-
-// Обнуляет projectId у всех живых заметок пользователя с данным projectId.
-// Вызывается projects-воркером при удалении проекта.
-export async function unlinkProjectFromNotes(
-	db: D1Database,
-	userId: string,
-	projectId: string,
-): Promise<void> {
-	await drizzle(db)
-		.update(notes)
-		.set({ projectId: null, updatedAt: new Date() })
-		.where(and(eq(notes.userId, userId), eq(notes.projectId, projectId), isNull(notes.deletedAt)))
-}

@@ -39,10 +39,6 @@
 			"binding": "PARSER",
 			"service": "notetaker-parser"
 		},
-		{
-			"binding": "PROJECTS",
-			"service": "notetaker-projects"
-		}
 	],
 	"dev": {
 		"port": 8787

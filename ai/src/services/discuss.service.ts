@@ -58,7 +58,7 @@ export async function streamDiscuss(
 		messages.push(msg)
 	}
 
-	const aiResult = await env.AI.run(model, { messages, stream: true })
+	const aiResult = await env.AI.run(model, { messages, stream: true, max_tokens: 1024 })
 	return ok(toReadableStream(aiResult))
 }
 

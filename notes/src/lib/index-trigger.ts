@@ -20,11 +20,7 @@ export function triggerVectorIndex(c: Context<AppBindings>, action: IndexAction)
 		: 'https://internal/internal/vectors/delete'
 
 	const body = action.kind === 'upsert'
-		? {
-				noteId: action.noteId,
-				contentText: action.contentText,
-				projectId: action.projectId,
-		  }
+		? { noteId: action.noteId, contentText: action.contentText }
 		: { noteId: action.noteId }
 
 	const promise = c.env.AI.fetch(url, {
