@@ -9,7 +9,7 @@ const ALLOWED_ORIGINS: readonly string[] = ['http://localhost:5173']
 
 export const corsMiddleware = cors({
 	origin: (origin) => (ALLOWED_ORIGINS.includes(origin) ? origin : null),
-	allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+	allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
 	allowHeaders: ['Content-Type', 'Authorization'],
 	credentials: false,
 	maxAge: 600,
