@@ -4,6 +4,7 @@ import type { AppBindings } from './config/env'
 import { suggestGroupRoutes } from './routes/suggest-group.routes'
 import { developRoutes } from './routes/develop.routes'
 import { discussRoutes } from './routes/discuss.routes'
+import { formatNoteRoutes } from './routes/format-note.routes'
 import { mergeRoutes } from './routes/merge.routes'
 import { searchRoutes } from './routes/search.routes'
 import { settingsRoutes } from './routes/settings.routes'
@@ -24,6 +25,7 @@ app.route('/', settingsRoutes)
 app.route('/', summarizeRoutes)
 app.route('/', developRoutes)
 app.route('/', discussRoutes)
+app.route('/', formatNoteRoutes)
 app.route('/', mergeRoutes)
 app.route('/', suggestGroupRoutes)
 
