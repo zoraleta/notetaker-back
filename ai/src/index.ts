@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import type { AppBindings } from './config/env'
+import { structurizeRoutes } from './routes/structurize.routes'
 import { suggestGroupRoutes } from './routes/suggest-group.routes'
 import { developRoutes } from './routes/develop.routes'
 import { discussRoutes } from './routes/discuss.routes'
@@ -27,6 +28,7 @@ app.route('/', developRoutes)
 app.route('/', discussRoutes)
 app.route('/', formatNoteRoutes)
 app.route('/', mergeRoutes)
+app.route('/', structurizeRoutes)
 app.route('/', suggestGroupRoutes)
 
 app.onError((error, c) => {
