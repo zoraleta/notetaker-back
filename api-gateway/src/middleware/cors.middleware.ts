@@ -5,7 +5,10 @@ import { cors } from 'hono/cors'
 //
 // Список origin-ов — статический whitelist. На старте пускаем dev-фронт (Vite),
 // production-домен Pages добавится после первого деплоя в Phase 9.
-const ALLOWED_ORIGINS: readonly string[] = ['http://localhost:5173']
+const ALLOWED_ORIGINS: readonly string[] = [
+	'http://localhost:5173',
+	'https://notetaker-front.pages.dev',
+]
 
 export const corsMiddleware = cors({
 	origin: (origin) => (ALLOWED_ORIGINS.includes(origin) ? origin : null),
