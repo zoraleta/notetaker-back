@@ -10,7 +10,7 @@
 **Порядок middleware в `src/index.ts`:**
 1. `corsMiddleware` (на `*`) — preflight (OPTIONS) и CORS-заголовки. Origin-whitelist жёсткий, см. ниже.
 2. `app.route('/auth', authRoutes)` — анонимные роуты регистрации/логина (без JWT — токен ещё не выдан).
-3. `jwtMiddleware` — навешивается на префиксы будущих защищённых групп: `/notes/*`, `/ai/*`, `/projects/*`, `/links/*`, `/settings/*`. На Phase 3 ни одна из групп ещё не имеет роутов — middleware готов к подключению, но не срабатывает.
+3. `jwtMiddleware` — навешивается на защищённые префиксы: `/notes/*`, `/ai/*`, `/links/*`, `/groups/*`, `/settings/*`.
 4. `app.onError` — централизованный обработчик непредвиденных ошибок (см. CLAUDE.md → правило 5). Ожидаемые ошибки приходят как `{ error, code }` от internal-воркеров и проксируются «как есть».
 5. `app.notFound` — единый формат `{ error, code: 'NOT_FOUND' }`.
 
@@ -31,16 +31,21 @@
 - `POST /auth/login` → proxy → `notetaker-auth` `/login`.
 
 **Защищённые роуты (`src/routes/notes.routes.ts`):**
-- `POST /notes`, `GET /notes`, `GET /notes/:id`, `PATCH /notes/:id`, `DELETE /notes/:id` → proxy → `notetaker-notes` (тот же путь). Префикс совпадает, поэтому `proxyToService` вызывается без `internalPath` и URL сохраняется как есть. `x-user-id` берётся из `c.get('user').id` (поставлен JWT-middleware).
-- `GET /notes/:id/similar` — особый случай: путь под `/notes/`, но эндпоинт принадлежит AI (F8 «Похожие заметки»). Прокси идёт в `notetaker-ai`, не в `notetaker-notes`. **Регистрация ДО `/:id`** в `Hono` (first-match): без правильного порядка `/:id` поглотит `/:id/similar`.
+- `POST /notes`, `GET /notes`, `GET /notes/:id`, `PATCH /notes/:id`, `DELETE /notes/:id` → proxy → `notetaker-notes` (тот же путь). `x-user-id` берётся из `c.get('user').id` (поставлен JWT-middleware).
+- `GET /notes/:id/similar` — особый случай: путь под `/notes/`, но эндпоинт принадлежит AI. Прокси идёт в `notetaker-ai`. **Регистрация ДО `/:id`** (Hono first-match).
 
-**AI-роуты (`src/routes/ai.routes.ts`, Phase 5B/5D/5E/5F/5G):**
-- `POST /ai/search` *(5B)* — proxy → `notetaker-ai` `/search` (с `internalPath: '/search'`, потому что `/ai/` — gateway-неймспейс, ai-воркер слушает без него).
-- `POST /ai/summarize` *(5D)* — proxy → `notetaker-ai` `/summarize`. SSE-стрим (`text/event-stream`); `authenticatedProxy` возвращает `target.fetch(...)` напрямую, поэтому ReadableStream проходит без буферизации.
-- `POST /ai/classify` *(5E)* — proxy → `notetaker-ai` `/classify`. Body `{ contentText }`; ответ `{ projectId, score }`.
+**Groups-роуты (`src/routes/groups.routes.ts`, Phase 8):**
+- `GET /groups`, `POST /groups`, `PATCH /groups/:id`, `DELETE /groups/:id` → proxy → `notetaker-notes` (там живут D1-таблица groups и бизнес-логика). Защищены `jwtMiddleware` через `app.use('/groups/*', jwtMiddleware)`.
+
+**AI-роуты (`src/routes/ai.routes.ts`):**
+- `POST /ai/search` *(5B)* — proxy → `notetaker-ai` `/search`.
+- `POST /ai/summarize` *(5D)* — proxy → `notetaker-ai` `/summarize`. SSE-стрим; ReadableStream проходит без буферизации.
 - `GET /ai/develop-suggestions` *(5F)* — proxy → `notetaker-ai` `/develop-suggestions`. Без тела/query.
-- `POST /ai/discuss` *(5G)* — proxy → `notetaker-ai` `/discuss`. SSE-стрим с RAG-контекстом из соседей якорной заметки.
-- `POST /ai/pack-into-project` *(5G)* — proxy → `notetaker-ai` `/pack-into-project`. Body `{ dialog }`; JSON-ответ `{ goal, stages, openQuestions }`.
+- `POST /ai/discuss` *(5G)* — proxy → `notetaker-ai` `/discuss`. SSE-стрим с RAG-контекстом.
+- `POST /ai/merge` *(8)* — proxy → `notetaker-ai` `/merge`. Body `{ activeNoteId, noteIds }`.
+- `POST /ai/structurize` *(8)* — proxy → `notetaker-ai` `/structurize`. Body `{ text }`.
+- `POST /ai/suggest-group` *(8)* — proxy → `notetaker-ai` `/suggest-group`. Body `{ noteText, topK? }`.
+- `POST /ai/format-for-note` *(8)* — proxy → `notetaker-ai` `/format-for-note`. SSE-стрим. Body `{ messages }`.
 
 **Settings-роуты (`src/routes/settings.routes.ts`, Phase 5C):**
 - `GET /settings`, `PUT /settings/active-model`, `PUT /settings/prompts/:key`, `DELETE /settings/prompts/:key` → proxy → `notetaker-ai` (тот же путь, без `internalPath` — префиксы совпадают). Защищены `jwtMiddleware` через `app.use('/settings/*', jwtMiddleware)`. ai-воркер сам `userId` не использует (настройки глобальные), но JWT всё равно обязателен — это guard «авторизован — может править».
@@ -52,31 +57,30 @@
 
 ## Зависимости
 - **Service Binding `AUTH`** (`Fetcher`) → воркер `notetaker-auth`.
-- **Service Binding `NOTES`** (`Fetcher`) → воркер `notetaker-notes`.
-- **Service Binding `AI`** (`Fetcher`) → воркер `notetaker-ai` (Phase 5B).
+- **Service Binding `NOTES`** (`Fetcher`) → воркер `notetaker-notes` (заметки и группы).
+- **Service Binding `AI`** (`Fetcher`) → воркер `notetaker-ai`.
 - **Service Binding `PARSER`** (`Fetcher`) → воркер `notetaker-parser` (Phase 6).
-- **`env.JWT_SECRET`** → секрет, должен совпадать со значением в `notetaker-auth` (auth подписывает, gateway проверяет). Локально — `api-gateway/.dev.vars`, в проде — `wrangler secret put JWT_SECRET`.
+- **`env.JWT_SECRET`** → секрет, должен совпадать со значением в `notetaker-auth`. Локально — `api-gateway/.dev.vars`, в проде — `wrangler secret put JWT_SECRET`.
 - **Внешние пакеты:** `hono`, `@hono/zod-validator`, `zod`, `@tsndr/cloudflare-worker-jwt`.
 
 `DB`, `env.AI: Ai`, `env.VECTORIZE` — не привязаны и **не должны** быть привязаны к этому воркеру (`AI` здесь — `Fetcher`, Service Binding на ai-воркер, а не Workers AI binding).
 
-В Phase 7 сюда добавится Service Binding: `PROJECTS`.
-
 ## Routes (публичные)
-- `POST /auth/register` — JSON `{ email, password }`. Валидируется и обрабатывается в `notetaker-auth`. Ответ: `201 { token, user: { id, email } }` или `400 { error, code: 'VALIDATION' }`.
-- `POST /auth/login` — то же тело. Ответ: `200 { token, user }` или `401 { error, code: 'UNAUTHORIZED' }`.
-- `POST/GET/GET/:id/PATCH/:id/DELETE/:id` под `/notes` — F2 CRUD заметок. Защищены JWT-middleware. Контракт описан в `docs/modules/notes.md`.
-- `GET /notes/:id/similar` — F8 «Похожие заметки», прокси в `notetaker-ai`. Контракт в `docs/modules/ai.md`.
-- `POST /ai/search` — F8 семантический поиск, прокси в `notetaker-ai`. Контракт в `docs/modules/ai.md`.
-- `POST /ai/summarize` — F1 SSE-саммари статьи, прокси в `notetaker-ai`. Контракт в `docs/modules/ai.md`.
-- `POST /ai/classify` — F3 RAG-классификация, прокси в `notetaker-ai`. Контракт в `docs/modules/ai.md`.
-- `GET /ai/develop-suggestions` — F4 кандидаты на «развей тему», прокси в `notetaker-ai`. Контракт в `docs/modules/ai.md`.
-- `POST /ai/discuss` — F5 SSE-чат «обсуди идею» с RAG-контекстом, прокси в `notetaker-ai`. Контракт в `docs/modules/ai.md`.
-- `POST /ai/pack-into-project` — F5 структурированная упаковка диалога в проект, прокси в `notetaker-ai`. Контракт в `docs/modules/ai.md`.
-- `GET /settings`, `PUT /settings/active-model`, `PUT /settings/prompts/:key`, `DELETE /settings/prompts/:key` — F7 AI-настройки, прокси в `notetaker-ai`. Контракт в `docs/modules/ai.md`.
-- `POST /links/parse` — F1 extraction статьи по URL, прокси в `notetaker-parser`. Контракт в `docs/modules/parser.md`.
-
-Остальные публичные роуты появятся в Phase 7 (`/projects/*`).
+- `POST /auth/register` — JSON `{ email, password }`. Ответ: `201 { token, user: { id, email } }` или `400 VALIDATION`.
+- `POST /auth/login` — то же тело. Ответ: `200 { token, user }` или `401 UNAUTHORIZED`.
+- `POST/GET/GET/:id/PATCH/:id/DELETE/:id` под `/notes` — CRUD заметок. Защищены JWT. Контракт в `docs/modules/notes.md`.
+- `GET/POST/PATCH/:id/DELETE/:id` под `/groups` — CRUD групп. Защищены JWT. Контракт в `docs/modules/groups.md`.
+- `GET /notes/:id/similar` — «Похожие заметки», прокси в `notetaker-ai`. Контракт в `docs/modules/ai.md`.
+- `POST /ai/search` — семантический поиск, прокси в `notetaker-ai`. Контракт в `docs/modules/ai.md`.
+- `POST /ai/summarize` — SSE-саммари статьи, прокси в `notetaker-ai`. Контракт в `docs/modules/ai.md`.
+- `GET /ai/develop-suggestions` — кандидаты «развей тему», прокси в `notetaker-ai`. Контракт в `docs/modules/ai.md`.
+- `POST /ai/discuss` — SSE-чат с RAG-контекстом, прокси в `notetaker-ai`. Контракт в `docs/modules/ai.md`.
+- `POST /ai/merge` — объединение заметок, прокси в `notetaker-ai`. Контракт в `docs/modules/ai.md`.
+- `POST /ai/structurize` — структурирование текста, прокси в `notetaker-ai`. Контракт в `docs/modules/ai.md`.
+- `POST /ai/suggest-group` — подбор группы по смыслу, прокси в `notetaker-ai`. Контракт в `docs/modules/ai.md`.
+- `POST /ai/format-for-note` — SSE форматирование диалога, прокси в `notetaker-ai`. Контракт в `docs/modules/ai.md`.
+- `GET /settings`, `PUT /settings/active-model`, `PUT /settings/prompts/:key`, `DELETE /settings/prompts/:key` — AI-настройки, прокси в `notetaker-ai`. Контракт в `docs/modules/ai.md`.
+- `POST /links/parse` — extraction статьи по URL, прокси в `notetaker-parser`. Контракт в `docs/modules/parser.md`.
 
 ## Internal endpoints / RPC
 Не имеет — gateway сам ни с кем не говорит как сервер для других воркеров. Только клиент Service Bindings.
